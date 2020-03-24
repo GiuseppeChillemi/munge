@@ -1,13 +1,19 @@
 Rebol [
 	Title:		"Munge functions"
 	Owner:		"Ashley G Truter"
-	Version:	3.0.1
-	Date:		18-Apr-2017
+	Version:	3.0.3
+	Date:		27-Jul-2017
 	Purpose:	"Extract and manipulate tabular values in blocks, delimited files and database tables."
 	Licence:	"MIT. Free for both commercial and non-commercial use."
 	Tested: {
-		3.0.99.3.3			R3/64-bit	atronixengineering.com
-		0.6.2				RED/32-bit	www.red-lang.org
+		Windows
+			Rebol/Core		2.7.8		rebol.com
+			R3/64-bit		3.0.99		atronixengineering.com/downloads
+			RED/32-bit		0.6.3		red-lang.org
+			Ren-C/64-bit	2.102.0		metaeducation.s3.amazonaws.com/index.html
+		macOS
+			Rebol/Core		2.7.8		rebol.com
+			RED/32-bit		0.6.3		red-lang.org
 	}
 	Usage: {
 		append-column		Append a column of values to a block.
@@ -17,8 +23,8 @@ Rebol [
 		call-out			Call OS command returning STDOUT.
 		check				Verify data structure.
 		cols?				Number of columns in a delimited file or string.
-		delimiter?			Probable delimiter, with priority given to tab, bar, tilde, semi-colon then comma.
-		digit				digit is a bitset! of value: make bitset! #{000000000000FFC0}
+		delimiter?			Probable delimiter, with priority given to comma, tab, bar, tilde then semi-colon.
+		digit				DIGIT is a bitset! value: make bitset! #{000000000000FFC0}
 		digits?				Returns TRUE if data not empty and only contains digits.
 		distinct			Remove duplicate and empty rows.
 		enblock				Convert a block of values to a block of row blocks.
@@ -27,7 +33,7 @@ Rebol [
 		first-line			Returns the first non-empty line of a file.
 		flatten				Flatten nested block(s).
 		latin1-to-utf8		Latin1 binary to UTF-8 string conversion.
-		letter				letter is a bitset! of value: make bitset! #{00000000000000007FFFFFE07FFFFFE0}
+		letter				LETTER is a bitset! value: make bitset! #{00000000000000007FFFFFE07FFFFFE0}
 		letters?			Returns TRUE if data only contains letters.
 		like				Finds a value in a series, expanding * (any characters) and ? (any one character), and returns TRUE if found.
 		list				Sets the new-line marker to end of block.
@@ -51,7 +57,6 @@ Rebol [
 		sum-of				Sum of values in a block.
 		to-column-alpha		Convert numeric column reference to an alpha column reference.
 		to-column-number	Convert alpha column reference to a numeric column reference.
-		to-hash				Convert block! to map!.
 		to-rebol-date		Convert a string date to a Rebol date.
 		to-rebol-time		Convert a string date/time to a Rebol time.
 		to-string-date		Convert a string or Rebol date to a YYYY-MM-DD string.
@@ -61,15 +66,213 @@ Rebol [
 	}
 ]
 
-Red []
+all [99 < system/version/2 value?: :set?]	;	Ren-C
+all [not value? 'red red: 255.0.0]			;	Rebol2/Core
 
-either rebol [
-	foreach word [put][
-		all [value? word print [word "already defined!"]]
+Red []										;	Red
+
+case [
+	not rebol [
+		platform:	system/platform
+		build: 		'red
+		target:		either system/build/config/target = 'IA-32 ['x32]['x64]
+
+		foreach word [delete-dir deline invalid-utf? join reform][
+			all [value? word print [word "already defined!"]]
+		]
+
+		delete-dir: function [
+			"Deletes a directory including all files and subdirectories"
+			folder [file!]
+		][
+			if dir? folder [
+				foreach file read folder [
+					delete-dir rejoin [folder file]
+				]
+			]
+			delete folder
+		]
+
+		deline: function [
+			string [any-string!]
+			/lines "Return block of lines (works for LF, CR, CR-LF endings) (no modify)"
+			"Converts string terminators to standard format, e.g. CRLF to LF"
+		][
+			replace/all string crlf lf
+			either lines [split string lf][string]
+		]
+
+		invalid-utf?: function [
+			"Checks UTF encoding; if correct, returns none else position of error"
+			binary [binary!]
+		] compose [
+			find binary (make bitset! [192 193 245 - 255])
+		]
+
+		join: function [
+			"Concatenates values."
+			value "Base value"
+			rest "Value or block of values"
+		][
+			value: either series? value [copy value] [form value]
+			repend value rest
+		]
+
+		reform: function [
+			"Forms a reduced block and returns a string"
+			value "Value to reduce and form"
+		][
+			form reduce value
+		]
 	]
+	system/product = 'atronix-view [
+		platform:	system/platform/1
+		build:		'r3
+		target:		'x64
+	]
+	99 < system/version/2 [
+		platform:	any [pick [none macOS Windows] system/version/4 'Linux]
+		build:		'renc
+		target:		to word! last split form system/platform/2 "-"
 
-	all [block? system/platform system/platform: system/platform/1]
+		none:	_
+		none!:	:blank!
+		none?:	:blank?
+		join:	:join-of
+		type?:	:type-of
 
+		cause-error: function [
+			"Causes an immediate error throw with the provided information"
+			err-type [word!]
+			err-id [word!]
+			args
+		][
+			do make error! form args
+		]
+
+		delete-dir: function [
+			"Deletes a directory including all files and subdirectories"
+			folder [file!]
+		][
+			if dir? folder [
+				foreach file read folder [
+					delete-dir rejoin [folder file]
+				]
+			]
+			delete folder
+		]
+
+		invalid-utf?: function [
+			"Checks UTF encoding; if correct, returns none else position of error"
+			binary [binary!]
+		] compose [
+			find binary (make bitset! [192 193 245 - 255])
+		]
+
+		rejoin: function [
+			"Reduces and joins a block of values."
+			block [block!] "Values to reduce and join"
+		][
+			all [empty? block: reduce block return block]
+			append either series? first block [copy first block] [
+				form first block
+			] next block
+		]
+	]
+	2 = system/version/1 [
+		platform:	any [pick [none macOS Windows] system/version/4 'Linux]
+		build: 		'r2
+		target: 	'x32
+
+		all [platform = 'Windows call/show ""]
+
+		function:	:funct
+		map!:		:block!
+
+		put: function [
+			"Replaces the value following a key, and returns the map"
+			map [block!]
+			key
+			value
+		][
+			remove/part find/skip map key 2 2
+			append map reduce [key value]
+		]
+
+		split: function [
+			"Split a series into pieces; fixed or variable size, fixed number, or at delimiters"
+			series [series!] "The series to split"
+			dlm [block! integer! char! bitset! any-string!] "Split size, delimiter(s), or rule(s)."
+			/into "If dlm is an integer, split into n pieces, rather than pieces of length n."
+		][
+			all [empty? series return make block! 0]
+			either all [block? dlm parse dlm [some integer!]] [
+				map-each len dlm [
+					either positive? len [
+						copy/part series series: skip series len
+					] [
+						series: skip series negate len
+						()
+					]
+				]
+			] [
+				size: dlm
+				res: collect [
+					parse/all series case [
+						all [integer? size into] [
+							if size < 1 [cause-error 'Script 'invalid-arg size]
+							count: size - 1
+							piece-size: to integer! round/down divide length? series size
+							if zero? piece-size [piece-size: 1]
+							[
+								count [copy series piece-size skip (keep/only series)]
+								copy series to end (keep/only series)
+							]
+						]
+						integer? dlm [
+							if size < 1 [cause-error 'Script 'invalid-arg size]
+							[any [copy series 1 size skip (keep/only series)]]
+						]
+						'else [
+							[any [mk1: some [mk2: dlm break | skip] (keep/only copy/part mk1 mk2)]]
+						]
+					]
+				]
+				fill-val: does [copy either any-block? series [[]] [""]]
+				add-fill-val: does [append/only res fill-val]
+				case [
+					all [integer? size into] [
+						if size > length? res [
+							loop (size - length? res) [add-fill-val]
+						]
+					]
+					'else [
+						case [
+							bitset? dlm [
+								if attempt [find dlm last series] [add-fill-val]
+							]
+							char? dlm [
+								if dlm = last series [add-fill-val]
+							]
+							string? dlm [
+								if all [
+									find series dlm
+									empty? find/last/tail series dlm
+								] [add-fill-val]
+							]
+						]
+					]
+				]
+				res
+			]
+		]
+	]
+	true [
+		cause-error 'user 'message ["Unsupported Rebol version or derivative"]
+	]
+]
+
+unless value? 'put [
 	put: function [
 		"Replaces the value following a key, and returns the map"
 		map [map!]
@@ -77,108 +280,6 @@ either rebol [
 		value
 	][
 		append map reduce [key value]
-	]
-][
-	foreach word [date! delete delete-dir deline invalid-utf? reform to-date][
-		all [value? word print [word "already defined!"]]
-	]
-
-	date!: :string!
-
-	delete: function [
-		"Deletes a file"
-		file [file!]
-	] compose/deep [
-		either exists? file [
-			call/wait rejoin [(either system/platform = 'Windows [{del "}][{rm "}]) to-local-file file {"}]
-		][
-			cause-error 'access 'cannot-open reduce [file]
-		]
-	]
-
-	delete-dir: function [
-		"Deletes a directory including all files and subdirectories"
-		file [file!]
-	] compose/deep [
-		either exists? file [
-			call/wait rejoin [(either system/platform = 'Windows [{rd /s /q "}][{rm -r "}]) to-local-file file {"}]
-		][
-			cause-error 'access 'cannot-open reduce [file]
-		]
-	]
-
-	deline: function [
-		string [any-string!]
-		/lines "Return block of lines (works for LF, CR, CR-LF endings) (no modify)"
-		"Converts string terminators to standard format, e.g. CRLF to LF"
-	][
-		replace/all string crlf lf
-		either lines [split string lf][string]
-	]
-
-	invalid-utf?: function [
-		"Checks UTF encoding; if correct, returns none else position of error"
-		binary [binary!]
-	] compose [
-		find binary (make bitset! [192 193 245 - 255])
-	]
-
-	unless value? 'now* [
-		now*: :now
-		now: function [
-			"Returns date and time"
-			/year "Returns year only"
-			/month "Returns month only"
-			/day "Returns day of the month only"
-			/time "Returns time only"
-			/date "Returns date only"
-			/weekday "Returns day of the week as integer (Monday is day 1)"
-			/precise "High precision time"
-		] compose [
-			t: either precise [now*/time/precise][now*/time]
-			call/wait/output (either system/platform = 'Windows ["date /t"]["date +%Y-%m-%d"]) s: make string! 16
-			d: to-date any [find s " " s]
-			case [
-				year	[d/year]
-				month	[d/month]
-				day		[d/day]
-				date	[d/date]
-				weekday	[copy/part s 3]
-				time	[t]
-				true	[rejoin [d/date "/" t]]
-			]
-		]
-	]
-
-	reform: function [
-		"Forms a reduced block and returns a string"
-		value "Value to reduce and form"
-	][
-		form reduce value
-	]
-
-	to-date: function [
-		"Converts to date! value"
-		date [string!]
-	][
-		d: ctx-munge/split-line date either find date "-" [#"-"][#"/"]
-		all [
-			4 = length? d/1
-			d: reduce [d/3 d/2 d/1]
-		]
-		d/1: to integer! d/1
-		d/2: to integer! d/2
-		d/3: to integer! d/3
-		all [
-			100 > d/3
-			d/3: d/3 + either d/3 < 68 [2000][1900]
-		]
-		make object! [
-			date:	rejoin [d/1 "-" copy/part pick system/locale/months d/2 3 "-" d/3]
-			year:	d/3
-			month:	d/2
-			day:	d/1
-		]
 	]
 ]
 
@@ -202,11 +303,29 @@ ctx-munge: context [
 	ascii-file?: function [
 		"Returns TRUE if file is ASCII"
 		file [file!]
-	] either rebol [[
-		ascii? read/string/part file 1024
-	]][compose [
-		not find read/binary/part file 1024 (charset [128 - 255])
-	]]
+	] 
+	
+	either build = 'red 
+	
+	[
+		
+	compose 
+	
+	[
+		not find read/binary/part file 512 (charset [128 - 255])
+		true ; da levare
+	]
+	
+	]
+	
+	[
+	
+	[
+		ascii? to string! read/part file 512
+		true ; Da levare
+	]
+	
+	]
 
 	average-of: function [
 		"Average of values in a block"
@@ -218,69 +337,90 @@ ctx-munge: context [
 		total / length? block
 	]
 
-	call-oledb: function [
-		"Call OLEDB via PowerShell returning STDOUT"
-		;	Excel, using https://www.microsoft.com/en-au/download/details.aspx?id=13255
-		file [file!]
-		cmd [string!]
-		/hdr "First row contains columnnames not data"
-	][
-		any [exists? file cause-error 'access 'cannot-open reduce [file]]
-		all [find file %' cause-error 'user 'message ["file name contains an invalid ' character"]]
-		trim/tail trim call-out rejoin [
-			either rebol ["powershell "]["C:\Windows\SysNative\WindowsPowerShell\v1.0\powershell.exe "]
-			{-nologo -noprofile -command "}
-			{$o=New-Object System.Data.OleDb.OleDbConnection('Provider=Microsoft.ACE.OLEDB.12.0;Data Source=''} to-local-file clean-path file {''}
-			either %.accdb = suffix? file ["');"][rejoin [{;Extended Properties=''Excel 12.0 Xml;HDR=} either hdr ["YES"]["NO"] {;IMEX=1;Mode=Read''');}]]
-			cmd
-			either #";" = last cmd [
-				rejoin [
-					{$s.Connection=$o;}
-					{$t=New-Object System.Data.DataTable;}
-					{$t.Load($s.ExecuteReader());}
-					{$o.Close();}
-					{$t|ConvertTo-CSV -Delimiter `t -NoTypeInformation}
-				]
-			][""]
-			{"}
+	call-oledb: if platform = 'Windows [
+		function [
+			"Call OLEDB via PowerShell returning STDOUT"
+			;	Excel, using https://www.microsoft.com/en-au/download/details.aspx?id=13255
+			file [file!]
+			cmd [string!]
+			/hdr "First row contains columnnames not data"
+		] compose/deep [
+			any [exists? file cause-error 'access 'cannot-open reduce [file]]
+			all [find file %' cause-error 'user 'message ["file name contains an invalid ' character"]]
+			trim/tail trim call-out rejoin [
+				(either target = 'x64 ["powershell "]["C:\Windows\SysNative\WindowsPowerShell\v1.0\powershell.exe "])
+				{-nologo -noprofile -command "}
+				{$o=New-Object System.Data.OleDb.OleDbConnection('Provider=Microsoft.ACE.OLEDB.12.0;Data Source=''} to-local-file clean-path file {''}
+				either %.accdb = suffix? file ["');"][rejoin [{;Extended Properties=''Excel 12.0 Xml;HDR=} either hdr ["YES"]["NO"] {;IMEX=1;Mode=Read''');}]]
+				cmd
+				either #";" = last cmd [
+					rejoin [
+						{$s.Connection=$o;}
+						{$t=New-Object System.Data.DataTable;}
+						{$t.Load($s.ExecuteReader());}
+						{$o.Close();}
+						{$t|ConvertTo-CSV -Delimiter `t -NoTypeInformation}
+					]
+				][""]
+				{"}
+			]
 		]
 	]
 
 	call-out: function [
 		"Call OS command returning STDOUT"
 		cmd [string!]
-	][
+	] either build = 'r2 [[
+		call/wait/output/error cmd stdout: make string! 65536 stderr: make string! 1024
+		any [empty? stderr cause-error 'user 'message reduce [trim/lines stderr]]
+		read-string to binary! stdout
+	]][[
 		call/wait/output/error cmd stdout: make binary! 65536 stderr: make string! 1024
 		any [empty? stderr cause-error 'user 'message reduce [trim/lines stderr]]
 		read-string stdout
-	]
+	]]
 
 	check: function [
 		"Verify data structure"
 		data [block!]
 	][
-		cols: length? data/1
-		i: 1
-		foreach row data [
-			any [block? row cause-error 'user 'message reduce [reform ["Row" i "expected block but found" type? row]]]
-			all [zero? length? row cause-error 'user 'message reduce [reform ["Row" i "empty"]]]
-			any [cols = length? row cause-error 'user 'message reduce [reform ["Row" i "expected" cols "column(s) but found" length? row]]]
-			all [block? row/1 row cause-error 'user 'message reduce [reform ["Row" i "did not expect first column to be a block"]]]
-			i: i + 1
+		unless empty? data [
+			cols: length? data/1
+			i: 1
+			foreach row data [
+				any [block? row cause-error 'user 'message reduce [reform ["Row" i "expected block but found" type? row]]]
+				all [zero? length? row cause-error 'user 'message reduce [reform ["Row" i "empty"]]]
+				any [cols = length? row cause-error 'user 'message reduce [reform ["Row" i "expected" cols "column(s) but found" length? row]]]
+				all [block? row/1 row cause-error 'user 'message reduce [reform ["Row" i "did not expect first column to be a block"]]]
+				i: i + 1
+			]
 		]
 		true
 	]
 
-	cols?: function [
-		"Number of columns in a delimited file or string"
-		data [file! binary! string!]
-		/with
-			delimiter [char!]
-		/sheet {Excel worksheet name (default is "Sheet 1")}
-			name [string! word!]
+	cols?: either platform = 'Windows [
+		function [
+			"Number of columns in a delimited file or string"
+			data [file! binary! string!]
+			/with
+				delimiter [char!]
+			/sheet {Excel worksheet name (default is "Sheet 1")}
+				name [string! word!]
+		][
+			length? case [
+				sheet	[fields?/sheet data name]
+				with	[fields?/with data delimiter]
+				true	[fields? data]
+			]
+		]
 	][
-		length? either sheet [fields?/sheet data name] [
-			either delimiter [
+		function [
+			"Number of columns in a delimited file or string"
+			data [file! binary! string!]
+			/with
+				delimiter [char!]
+		][
+			length? either with [
 				fields?/with data delimiter
 			][
 				fields? data
@@ -289,17 +429,21 @@ ctx-munge: context [
 	]
 
 	delimiter?: function [
-		"Probable delimiter, with priority given to tab, bar, tilde, semi-colon then comma"
+		"Probable delimiter, with priority given to comma, tab, bar, tilde then semi-colon"
 		data [file! string!]
 	][
 		data: first-line data
-		case [
-			find data tab [tab]
-			find data #"|" [#"|"]
-			find data #"~" [#"~"]
-			find data #";" [#";"]
-			true [#","]
+		counts: copy [0 0 0 0 0]
+		foreach char data [
+			switch char [
+				#","	[counts/1: counts/1 + 1]
+				#"^-"	[counts/2: counts/2 + 1]
+				#"|"	[counts/3: counts/3 + 1]
+				#"~"	[counts/4: counts/4 + 1]
+				#";"	[counts/5: counts/5 + 1]
+			]
 		]
+		pick [#"," #"^-" #"|" #"~" #";"] index? find counts max-of counts
 	]
 
 	digit: charset [#"0" - #"9"]
@@ -333,10 +477,8 @@ ctx-munge: context [
 	][
 		all [block? data/1 return data]
 		any [integer? rows: divide length? data cols cause-error 'user 'message ["Cols not a multiple of length"]]
-		i: 1
-		loop rows [
+		repeat i rows [
 			change/part/only at data i copy/part at data i cols cols
-			i: i + 1
 		]
 		data
 	]
@@ -351,29 +493,46 @@ ctx-munge: context [
 		words
 	]
 
-	fields?: function [
-		"Column names in a delimited file or string"
-		data [file! string!]
-		/with
-			delimiter [char!]
-		/sheet {Excel worksheet name (default is "Sheet 1")}
-			name [string! word!]
-	] compose/deep [
-		either any [string? data not oledb-file? data] [
+	fields?: either platform = 'Windows [
+		function [
+			"Column names in a delimited file or string"
+			data [file! string!]
+			/with
+				delimiter [char!]
+			/sheet {Excel worksheet name (default is "Sheet 1")}
+				name [string! word!]
+		][
+			either any [platform <> 'Windows string? data not oledb-file? data] [
+				all [file? data not ascii-file? data cause-error 'user 'message ["Cannot use with binary file"]]
+				either data: first-line data [
+					split-line data either with [delimiter][delimiter? data]
+				][
+					make block! 0
+				]
+			][
+				sheet: either sheet [name][first sheets? data]
+				unless %.accdb = suffix? data [
+					sheet: rejoin [sheet "$"]
+					all [find sheet " " insert sheet "''" append sheet "''"]
+				]
+				remove/part deline/lines call-oledb/hdr data rejoin [
+					{$o.Open();$o.GetSchema('Columns')|where TABLE_NAME -eq '} sheet {'|sort ORDINAL_POSITION|select COLUMN_NAME;$o.Close()}
+				] 2
+			]
+		]
+	][
+		function [
+			"Column names in a delimited file or string"
+			data [file! string!]
+			/with
+				delimiter [char!]
+		][
+			all [file? data not ascii-file? data cause-error 'user 'message ["Cannot use with binary file"]]
 			either data: first-line data [
-				split-line data any [delimiter delimiter? data]
+				split-line data either with [delimiter][delimiter? data]
 			][
 				make block! 0
 			]
-		][
-			sheet: any [name first sheets? data]
-			unless %.accdb = suffix? data [
-				sheet: rejoin [sheet "$"]
-				all [find sheet " " insert sheet "''" append sheet "''"]
-			]
-			remove/part deline/lines call-oledb/hdr data rejoin [
-				{$o.Open();$o.GetSchema('Columns')|where TABLE_NAME -eq '} sheet {'|sort ORDINAL_POSITION|select COLUMN_NAME;$o.Close()}
-			] 2
 		]
 	]
 
@@ -382,7 +541,7 @@ ctx-munge: context [
 		data [file! string!]
 	] compose/deep [
 		foreach line deline/lines either file? data [
-			latin1-to-utf8 (either rebol [[read/part]][[read/binary/part]]) data 4096
+			latin1-to-utf8 (either find [r3 renc] build [[read/part]][[read/binary/part]]) data 4096
 		][
 			copy/part data 4096
 		][
@@ -408,7 +567,13 @@ ctx-munge: context [
 	latin1-to-utf8: function [ ; http://stackoverflow.com/questions/21716201/perform-file-encoding-conversion-with-rebol-3
 		"Latin1 binary to UTF-8 string conversion"
 		data [binary!]
-	][
+	] either build = 'r2 [[
+		mark: data
+		while [mark: find mark #{C2A0}][	; replace char 160 with space - http://www.adamkoch.com/2009/07/25/white-space-and-character-160/
+			change/part mark #{20} 2
+		]
+		trim/with to string! data null		; remove #"^@"
+	]][[
 		mark: data
 		while [mark: find mark #{C2A0}][	; replace char 160 with space - http://www.adamkoch.com/2009/07/25/white-space-and-character-160/
 			change/part mark #{20} 2
@@ -418,7 +583,7 @@ ctx-munge: context [
 			change/part mark to char! mark/1 1
 		]
 		trim/with to string! data null		; remove #"^@"
-	]
+	]]
 
 	letter: charset [#"A" - #"Z" #"a" - #"z"]
 
@@ -468,28 +633,46 @@ ctx-munge: context [
 			condition [block!]
 		/with "Alternate delimiter (default is tab, bar then comma)"
 			delimiter [char!]
-	][
+	] compose [
 		source: case [
 			file? source	[either ascii-file? source [read-string source][cause-error 'user 'message ["Cannot use load-dsv with binary file"]]]
 			binary? source	[latin1-to-utf8 source]
 			string? source	[deline source]
 		]
 
-		any [delimiter delimiter: delimiter? source]
+		any [with delimiter: delimiter? source]
 
-		value: either preserve [[
-			{"} (clear v) x: to [{"} | end] y: (append/part v x y)
-			any [{"} x: {"} to [{"} | end] y: (append/part v x y)]
-			[{"} x: to [delimiter | lf | end] y: (append/part v x y) | end]
-			(append row copy v) |
-			copy x to [delimiter | lf | end] (append row x)
+		(either build = 'r2 [[
+			valchars: remove/part charset [#"^(00)" - #"^(FF)"] crlf
+			valchars: compose [any (remove/part valchars form delimiter)]
+			value: either preserve [[
+				{"} (clear v) x: [to {"} | to end] y: (insert/part tail v x y)
+				any [{"} x: {"} [to {"} | to end] y: (insert/part tail v x y)]
+				[{"} x: valchars y: (insert/part tail v x y) | end]
+				(insert tail row copy v) |
+				x: valchars y: (insert tail row copy/part x y)
+			]][[
+				{"} (clear v) x: [to {"} | to end] y: (insert/part tail v x y)
+				any [{"} x: {"} [to {"} | to end] y: (insert/part tail v x y)]
+				[{"} x: valchars y: (insert/part tail v x y) | end]
+				(insert tail row trim/lines copy v) |
+				x: valchars y: (insert tail row trim/lines copy/part x y)
+			]]
 		]][[
-			{"} (clear v) x: to [{"} | end] y: (append/part v x y)
-			any [{"} x: {"} to [{"} | end] y: (append/part v x y)]
-			[{"} x: to [delimiter | lf | end] y: (append/part v x y) | end]
-			(append row trim/lines copy v) |
-			copy x to [delimiter | lf | end] (append row trim/lines x)
-		]]
+			value: either preserve [[
+				{"} (clear v) x: to [{"} | end] y: (append/part v x y)
+				any [{"} x: {"} to [{"} | end] y: (append/part v x y)]
+				[{"} x: to [delimiter | lf | end] y: (append/part v x y) | end]
+				(append row copy v) |
+				copy x to [delimiter | lf | end] (append row x)
+			]][[
+				{"} (clear v) x: to [{"} | end] y: (append/part v x y)
+				any [{"} x: {"} to [{"} | end] y: (append/part v x y)]
+				[{"} x: to [delimiter | lf | end] y: (append/part v x y) | end]
+				(append row trim/lines copy v) |
+				copy x to [delimiter | lf | end] (append row trim/lines x)
+			]]
+		]])
 
 		cols: cols?/with source delimiter
 
@@ -512,7 +695,7 @@ ctx-munge: context [
 			row [block!]
 		] compose/deep either any [part where][[
 			all [
-				(either where [condition][])
+				(either where [condition][true])	; Ren-C requires this
 				(either ignore [][compose/deep [any [(cols) = len: length? row cause-error 'user 'message reduce [reform ["Expected" (cols) "values but found" len "on line" line]]]]])
 				append/only blk (columns)
 			]
@@ -523,55 +706,69 @@ ctx-munge: context [
 
 		line: 0
 		blk: copy []
-		parse source [
-			any [
-				not end (row: make block! cols)
-				value
-				any [delimiter value] [lf | end] (line: line + 1 all [[""] <> unique row append-row row])
+
+		(either build = 'r2 [[
+			parse/all source [
+				any [
+					end break | (row: make block! cols)
+					value
+					any [delimiter value] [lf | end] (line: line + 1 all [[""] <> unique row append-row row])
+				]
 			]
-		]
+		]][[
+			parse source [
+				any [
+					not end (row: make block! cols)
+					value
+					any [delimiter value] [lf | end] (line: line + 1 all [[""] <> unique row append-row row])
+				]
+			]
+		]])
 
 		blk
 	]
 
-	load-excel: function [
-		"Loads an Excel file"
-		file [file!]
-		sheet [integer! word! string!]
-		/part "Offset position(s) / columns(s) to retrieve"
-			columns [block! integer!]
-		/where "Expression that can reference columns as F1, F2, etc"
-			condition [string!]
-		/distinct
-		/string
-	][
-		any [exists? file cause-error 'access 'cannot-open reduce [file]]
-		all [find condition "'" condition: replace/all copy condition "'" "''"]
-		either part [
-			part: copy ""
-			foreach i to block! columns [append part rejoin ["F" i ","]]
-			remove back tail part
-		] [part: "*"]
+	load-excel: if platform = 'Windows [
+		function [
+			"Loads an Excel file"
+			file [file!]
+			sheet [integer! word! string!]
+			/part "Offset position(s) / columns(s) to retrieve"
+				columns [block! integer!]
+			/where "Expression that can reference columns as F1, F2, etc"
+				condition [string!]
+			/distinct
+			/string
+		][
+			any [exists? file cause-error 'access 'cannot-open reduce [file]]
+			all [where find condition "'" condition: replace/all copy condition "'" "''"]
+			either part [
+				part: copy ""
+				foreach i to block! columns [append part rejoin ["F" i ","]]
+				remove back tail part
+			] [part: "*"]
 
-		unless any [integer? sheet %.accdb = suffix? file] [
-			sheet: rejoin [sheet "$"]
-			all [find sheet " " insert sheet "''" append sheet "''"]
-		]
+			unless any [integer? sheet %.accdb = suffix? file] [
+				sheet: rejoin [sheet "$"]
+				all [find sheet " " insert sheet "''" append sheet "''"]
+			]
 
-		stdout: call-oledb file rejoin [
-			{$o.Open();$s=New-Object System.Data.OleDb.OleDbCommand('}
-			"SELECT " either distinct ["DISTINCT "][""] part
-			" FROM [" either integer? sheet [rejoin ["'+$o.GetSchema('Tables').rows[" sheet - 1 "].TABLE_NAME+'"]][sheet] "]"
-			either where [reform [" WHERE" condition]][""]
-			{');}
+			stdout: call-oledb file rejoin [
+				{$o.Open();$s=New-Object System.Data.OleDb.OleDbCommand('}
+				"SELECT " either distinct ["DISTINCT "][""] part
+				" FROM [" either integer? sheet [rejoin ["'+$o.GetSchema('Tables').rows[" sheet - 1 "].TABLE_NAME+'"]][sheet] "]"
+				either where [reform [" WHERE" condition]][""]
+				{');}
+			]
+			either string [stdout] [remove load-dsv/with stdout #"^-"]
 		]
-		either string [stdout] [remove load-dsv/with stdout #"^-"]
 	]
 
 	max-of: function [
 		"Returns the largest value in a series"
 		series [series!] "Series to search"
 	][
+		all [empty? series return none]
 		val: series/1
 		foreach v series [val: max val v]
 		val
@@ -602,13 +799,16 @@ ctx-munge: context [
 		do compose/deep [
 			either default [
 				foreach row outer [
-					all [i: select map pick row key1 append row pick inner i]
+					all [
+						(either build = 'r2 [[i: select/skip map pick row key1 2 i: first i]][[i: select map pick row key1]])
+						append row pick inner i
+					]
 					append/only blk reduce [(code)]
 				]
 			][
 				foreach row outer [
 					all [
-						i: select map pick row key1
+						(either build = 'r2 [[i: select/skip map pick row key1 2 i: first i]][[i: select map pick row key1]])
 						append row pick inner i
 						append/only blk reduce [(code)]
 					]
@@ -623,6 +823,7 @@ ctx-munge: context [
 		"Returns the smallest value in a series"
 		series [series!] "Series to search"
 	][
+		all [empty? series return none]
 		val: series/1
 		foreach v series [val: min val v]
 		val
@@ -688,8 +889,8 @@ ctx-munge: context [
 						(append to set-path! 'row col) (either all [word? val #"!" = last form val] [compose [to (val) (append to path! 'row col)]] [val])
 					]
 				]
-				either rebol [
-					either block? condition [
+				either build <> 'red [
+					either all [where block? condition] [
 						foreach row data compose/deep [
 							all [
 								(condition)
@@ -719,7 +920,7 @@ ctx-munge: context [
 			]
 			delete [
 				either where [
-					either rebol [
+					either build <> 'red [
 						remove-each row data compose/only [all (condition)]
 					][
 						remove-each row data bind compose/only [all (condition)] 'row
@@ -741,7 +942,7 @@ ctx-munge: context [
 				foreach row data compose [
 					(
 						either where [
-							either rebol [
+							either build <> 'red [
 								compose/deep [all [(condition) append/only blk (columns)]]
 							][
 								bind compose/deep [all [(condition) append/only blk (columns)]] 'row
@@ -831,7 +1032,7 @@ ctx-munge: context [
 		/lines "Handles data as lines"
 	] compose/deep [
 		any [exists? file cause-error 'access 'cannot-open reduce [file]]
-		call/wait rejoin [{"} (to-local-file system/options/path) {pdftotext" -nopgbrk -table "} to-local-file clean-path file {" tmp.txt}]
+		call/wait rejoin [{"} to-local-file join (either build = 'red [[system/options/path]][[pwd]]) {pdftotext" -nopgbrk -table "} to-local-file clean-path file {" tmp.txt}]
 		also either lines [read-string/lines %tmp.txt] [trim/tail read-string %tmp.txt] delete %tmp.txt
 	]
 
@@ -842,9 +1043,9 @@ ctx-munge: context [
 	] compose/deep [
 		either file? data [
 			either lines [
-				deline/lines latin1-to-utf8 (either rebol [[read data]][[read/binary data]])
+				deline/lines latin1-to-utf8 (either find [r3 renc] build [[read data]][[read/binary data]])
 			][
-				deline latin1-to-utf8 (either rebol [[read data]][[read/binary data]])
+				deline latin1-to-utf8 (either find [r3 renc] build [[read data]][[read/binary data]])
 			]
 		][
 			either lines [deline/lines latin1-to-utf8 data][deline latin1-to-utf8 data]
@@ -891,24 +1092,26 @@ ctx-munge: context [
 		]
 	]
 
-	sheets?: function [
-		"Excel sheet names"
-		file [file!]
-	][
-		blk: remove/part deline/lines call-oledb file {$o.Open();$o.GetSchema('Tables')|where TABLE_TYPE -eq "TABLE"|SELECT TABLE_NAME;$o.Close()} 2
-		unless %.accdb = suffix? file [
-			foreach s blk [trim/with s "'"]
-			remove-each s blk [#"$" <> last s]
-			foreach s blk [remove back tail s]
+	sheets?: if platform = 'Windows [
+		function [
+			"Excel sheet names"
+			file [file!]
+		][
+			blk: remove/part deline/lines call-oledb file {$o.Open();$o.GetSchema('Tables')|where TABLE_TYPE -eq "TABLE"|SELECT TABLE_NAME;$o.Close()} 2
+			unless %.accdb = suffix? file [
+				foreach s blk [trim/with s "'"]
+				remove-each s blk [#"$" <> last s]
+				foreach s blk [remove back tail s]
+			]
+			blk
 		]
-		blk
 	]
 
 	split-line: function [
 		"Splits and returns line of text as a block"
 		line [string!]
 		delimiter [char!]
-	] either rebol [[
+	] either build <> 'red [[
 		foreach s row: split line delimiter [trim/lines trim/with s {"}]
 		row
 	]][[
@@ -918,51 +1121,53 @@ ctx-munge: context [
 		row
 	]]
 
-	sqlcmd: function [
-		"Execute a SQL Server statement"
-		server [string!]
-		database [string!]
-		statement [string!]
-		/key "Columns to convert to integer"
-			columns [integer! block!]
-		/headings "Keep column headings"
-		/string
-	][
-		stdout: call-out reform compose ["sqlcmd -X -S" server "-d" database "-I -Q" rejoin [{"} statement {"}] {-W -w 65535 -s"^-"} (either headings [][{-h -1}])]
-		all [string return stdout]
-		all [any [empty? stdout #"^/" = first stdout] return make block! 0]
-		all [like first-line stdout "Msg*,*Level*,*State*,*Server" cause-error 'user 'message reduce [trim/lines find stdout "Line"]]
-
-		either "^/(" = copy/part stdout 2 [
-			trim/with stdout "()^/"
+	sqlcmd: if platform = 'Windows [
+		function [
+			"Execute a SQL Server statement"
+			server [string!]
+			database [string!]
+			statement [string!]
+			/key "Columns to convert to integer"
+				columns [integer! block!]
+			/headings "Keep column headings"
+			/string
 		][
-			stdout: copy/part stdout find stdout "^/^/("
-			all [find ["" "NULL"] stdout return make block! 0]
+			stdout: call-out reform compose ["sqlcmd -X -S" server "-d" database "-I -Q" rejoin [{"} statement {"}] {-W -w 65535 -s"^-"} (either headings [][{-h -1}])]
+			all [string return stdout]
+			all [any [empty? stdout #"^/" = first stdout] return make block! 0]
+			all [like first-line stdout "Msg*,*Level*,*State*,*Server" cause-error 'user 'message reduce [trim/lines find stdout "Line"]]
 
-			stdout: load-dsv/with stdout #"^-"
+			either "^/(" = copy/part stdout 2 [
+				trim/with stdout "()^/"
+			][
+				stdout: copy/part stdout find stdout "^/^/("
+				all [find ["" "NULL"] stdout return make block! 0]
 
-			all [headings remove skip stdout 1]
+				stdout: load-dsv/with stdout #"^-"
 
-			foreach row stdout [
-				foreach val row [
-					all ["NULL" == trim val clear val]
-				]
-			]
+				all [headings remove skip stdout 1]
 
-			remove-each row stdout [
-				all [series? row/1 empty? row/1 1 = length? unique row]
-			]
-
-			all [
-				key
-				foreach row skip stdout either headings [1][0] [
-					foreach i to block! columns [
-						poke row i to integer! pick row i
+				foreach row stdout [
+					foreach val row [
+						all ["NULL" == trim val clear val]
 					]
 				]
-			]
 
-			stdout
+				remove-each row stdout [
+					all [series? row/1 empty? row/1 1 = length? unique row]
+				]
+
+				all [
+					key
+					foreach row skip stdout either headings [1][0] [
+						foreach i to block! columns [
+							poke row i to integer! pick row i
+						]
+					]
+				]
+
+				stdout
+			]
 		]
 	]
 
@@ -1028,17 +1233,6 @@ ctx-munge: context [
 		]
 	]
 
-	to-hash: function [
-		"Convert block! to map!"
-		data [block!]
-	][
-		map: make map! length? data
-		foreach value flatten data [
-			put map value 0
-		]
-		map
-	]
-
 	to-rebol-date: function [
 		"Convert a string date to a Rebol date"
 		date [string!]
@@ -1047,18 +1241,21 @@ ctx-munge: context [
 		/day "Day precedes date"
 	] compose [
 		all [day date: copy date remove/part date next find date " "]
-		date: (either rebol [[parse date "/- "]][[split date charset "/- "]])
+		date: (either find [red renc] build [[split date charset "/- "]][[parse date "/- "]])
+		date/1: to integer! date/1
+		date/2: to integer! date/2
+		date/3: to integer! date/3
 		to-date case [
-			mdy		[rejoin [date/2 "-" date/1 "-" date/3]]
-			ydm		[rejoin [date/2 "-" date/3 "-" date/1]]
-			true	[rejoin [date/1 "-" date/2 "-" date/3]]
+			mdy		[reduce [date/2 date/1 date/3]]
+			ydm		[reduce [date/2 date/3 date/1]]
+			true	[reduce [date/1 date/2 date/3]]
 		]
 	]
 
 	to-rebol-time: function [
 		"Convert a string date/time to a Rebol time"
 		time [string!]
-	] either rebol [[
+	] either build <> 'red [[
 		to time! trim/all copy back back find time ":"
 	]][[
 		either find time "PM" [
@@ -1078,11 +1275,15 @@ ctx-munge: context [
 	] compose/deep [
 		all [
 			string? date
-			date: to-date case [
-				mdy		[date: (either rebol [[parse date "/- "]][[split date charset "/- "]]) rejoin [date/2 "/" date/1 "/" date/3]]
-				ydm		[date: (either rebol [[parse date "/- "]][[split date charset "/- "]]) rejoin [date/2 "/" date/3 "/" date/1]]
-				true	[date]
+			date: case [
+				mdy		[to-rebol-date/mdy date]
+				ydm		[to-rebol-date/ydm date]
+				true	[to-rebol-date date]
 			]
+		]
+		all [
+			date/year < 100
+			date/year: date/year + either date/year <= (now/year - 1950) [2000][1900]
 		]
 		rejoin [date/year "-" next form 100 + date/month "-" next form 100 + date/day]
 	]
@@ -1090,24 +1291,24 @@ ctx-munge: context [
 	to-string-time: function [
 		"Convert a string or Rebol time to a HH.MM.SS string"
 		time [string! date! time!]
-	] either rebol [[
-		all [
-			string? time
-			time: to time! trim/all copy time
-		]
-		rejoin [next form 100 + time/hour "." next form 100 + time/minute "." next form 100 + time/second]
-	]][[
+	] either build = 'red [[
 		if string? time [
 			PM?: find time "PM"
 			time: to time! time
 			all [PM? time/1 < 13 time/1: time/1 + 12]
 		]
 		rejoin [next form 100 + time/hour "." next form 100 + time/minute "." next form 100 + to integer! time/second]
+	]][[
+		all [
+			string? time
+			time: to time! trim/all copy time
+		]
+		rejoin [next form 100 + time/hour "." next form 100 + time/minute "." next form 100 + to integer! time/second]
 	]]
 
 	write-dsv: function [
 		"Write block(s) of values to a delimited text file"
-		file [file!] "csv or tab-delimited text file"
+		file [file! url!] "csv or tab-delimited text file"
 		data [block!]
 	][
 		s: copy ""
@@ -1236,7 +1437,7 @@ ctx-munge: context [
 
 		all [exists? file delete file]
 
-		call/wait (either system/platform = 'Windows [[
+		call/wait (either platform = 'Windows [[
 			rejoin [ ; http://stackoverflow.com/questions/17546016/how-can-you-zip-or-unzip-from-the-command-prompt-using-only-windows-built-in-ca
 				{powershell.exe -nologo -noprofile -command "Add-Type -A System.IO.Compression.FileSystem;[IO.Compression.ZipFile]::CreateFromDirectory('tmp','}
 				to-local-file clean-path file
