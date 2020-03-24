@@ -1,8 +1,8 @@
 REBOL [
 	Title:		"Munge function"
 	Owner:		"Ashley G Truter"
-	Version:	1.0.8
-	Date:		7-Feb-2015
+	Version:	1.0.9
+	Date:		20-Apr-2015
 	Purpose:	"Extract and manipulate tabular values in blocks, delimited files and SQL Server tables."
 	Tested: {
 		2.7.8.3.1	R2			rebol.com
@@ -10,16 +10,23 @@ REBOL [
 		3.0.91.3.3	R3 64-bit	atronixengineering.com
 	}
 	Usage: {
+		;	General
 		cols?		Number of columns in a delimited file
-		rows?		Number of rows in a delimited file
+		fields?		Column names in a delimited file
 		sheets?		Number of sheets in an XLS file
+		;	Associative array
+		index		Converts a block of values into key and value pairs
+		lookup		Finds a value in the index and returns the value after it
+		assign		Adds/updates/removes a key and its associated value in an index
+		retrieve	Return row from block using index to lookup key
+		;	Munge
 		execute		Execute a SQL statement (SQL Server, Access or SQLite)
 		load-dsv	Loads delimiter-separated values from a file
 		munge		Load and / or manipulate a block of tabular (column and row) values
 		read-pdf	Reads from a PDF file
 		read-xls	Reads from an XLS file
 		sqlcmd		Execute a SQL Server statement
-		unzip		Uncompress a file into a folder of the same name
+		unzip		Uncompress a file into a folder of the same name (BETA)
 		worksheet	Add a worksheet to the current workbook
 	}
 	Licence:	"MIT. Free for both commercial and non-commercial use."
@@ -92,12 +99,40 @@ REBOL [
 				Added load-dsv /blocks
 				Fixed delete/where (missing implied all)
 				Added unzip
+		1.0.9	Added call compatibility function for R3 Alpha
+				Added /all support to read-xls
+				Added /part to load-dsv
+				Re-factored VBS calls
+				Added fields? function
+				Added associative array support (index, lookup, assign)
+				Added unique undex support (index/direct, retrieve)
+		1.0.10	Added slice function
+				Added /sheet refinement to munge function
+				Added string! support for /sheet refinement in all supported functions
+				Fixed load-dsv gives more meaningful error if file doesn't exists
 	}
 ]
 
 ;
 ;	Compatibility patches
 ;
+
+unless any ["native" = mold get 'call find mold get 'call "/output"] [	; R3 Alpha fix
+	*call: :call
+	call: funct [command /output out /error err /wait /shell] [
+		command: trim reform [either shell ["cmd /C"][""] command either any [output error]["1> $out.txt 2> $err.txt"][""]]
+		rc: either wait [*call/wait command] [*call command]
+		if exists? %$out.txt [
+			all [output insert clear out read/string %$out.txt]
+			delete %$out.txt
+		]
+		if exists? %$err.txt [
+			all [error insert clear err read/string %$err.txt]
+			delete %$err.txt
+		]
+		rc
+	]
+]
 
 if integer? remove-each i [][][		; R3 fix
 	*remove-each: :remove-each
@@ -135,9 +170,8 @@ context [
 	;	Private
 	;
 
-	R3A?: 100 < second system/version
 	R64?: 3 = first system/version
-	R3?: any [R3A? R64?]
+	R3?: any [R64? 100 < second system/version]
 
 	XLS?: func [
 		file [file!]
@@ -147,22 +181,29 @@ context [
 
 	base-path: join to-local-file system/script/path "\"
 
-	excel-columns: none
+	excel-metrics: 0x0	; sheets x columns
+
+	sheet?: func [
+		sheet [integer! string! none!]
+	] [
+		either string? sheet [ajoin [{"} sheet {"}]] [any [sheet 1]]
+	]
 
 	call-excel-vbs: func [
 		file [file!]
-		sheet [integer!]
+		sheet [integer! string! none!]
 		cmd [string!]
-		/rows
-		/sheets
 	][
 		any [exists? file cause-error 'access 'cannot-open file]
-		write %$tmp.vbs either sheets [
-			ajoin [{set X=CreateObject("Excel.Application"):X.DisplayAlerts=False:set W=X.Workbooks.Open("} to-local-file clean-path file {"):n=X.Worksheets.Count:X.Workbooks.Close:WScript.Quit n}]
-		][
-			ajoin [{set X=CreateObject("Excel.Application"):X.DisplayAlerts=False:set W=X.Workbooks.Open("} to-local-file clean-path file {"):} cmd {n=X.ActiveWorkbook.Worksheets(} sheet {).UsedRange.} either rows ['Rows]['Columns] {.Count:X.Workbooks.Close:WScript.Quit n}]
+		write %$tmp.vbs ajoin [
+			{set X=CreateObject("Excel.Application"):X.DisplayAlerts=False:set W=X.Workbooks.Open("} to-local-file clean-path file {"):}
+			{n=(X.Worksheets.Count*1000)+X.ActiveWorkbook.Worksheets(} sheet? sheet {).UsedRange.Columns.Count:}
+			cmd
+			":X.Workbooks.Close:WScript.Quit n"
 		]
-		also excel-columns: call/wait "cmd /C $tmp.vbs" delete %$tmp.vbs
+		excel-metrics: form call/wait/shell "$tmp.vbs"
+		delete %$tmp.vbs
+		excel-metrics: as-pair to-integer copy/part excel-metrics subtract length? excel-metrics 3 to-integer skip tail excel-metrics -3
 	]
 
 	to-xml-string: func [
@@ -179,39 +220,212 @@ context [
 	;	Public
 	;
 
-	set 'cols? funct [
+	set 'cols? func [
 		"Number of columns in a delimited file."
 		file [file!]
-		/sheet "Excel worksheet (default is 1)"
-			number [integer!]
+		/sheet "Excel worksheet number or name (default is 1)"
+			number [integer! string!]
 	][
 		either XLS? file [
-			call-excel-vbs file any [number 1] ""
+			to-integer second call-excel-vbs file number ""
 		][
 			;	/lines/part returns n chars in R3
-			length? load-dsv first either R3? [read/lines file][read/direct/lines/part file 1] 
+			length? load-dsv first either R3? [read/lines file][read/direct/lines/part file 1]
 		]
 	]
 
-	set 'rows? funct [
-		"Number of rows in a delimited file."
+	set 'fields? funct [
+		"Column names in a delimited file."
 		file [file!]
-		/sheet "Excel worksheet (default is 1)"
-			number [integer!]
+		/sheet "Excel worksheet number of name(default is 1)"
+			number [integer! string!]
 	][
-		either XLS? file [
-			call-excel-vbs/rows file any [number 1] ""
+		any [exists? file cause-error 'access 'cannot-open file]
+		either xls? file [
+			call?: "x"
+			unless any [R3? empty? call?][call/show clear call?]
+			write/string %$tmp.vbs ajoin [{
+				Set WB=CreateObject("Excel.Application")
+				WB.DisplayAlerts=0
+				WB.Workbooks.open "} to-local-file clean-path file {",false,true
+				Set WS=WB.ActiveWorkbook.Worksheets(} sheet? number {)
+				Line=""
+				For Col=1 to WS.UsedRange.Columns.Count
+					Line=Line&WS.Cells(1,Col).Value&VBTab
+				Next
+				WScript.Echo(LEFT(Line,(LEN(Line)-1)))
+				WB.Workbooks.Close
+			}]
+			call/wait/output "cmd /C cscript $tmp.vbs //NoLogo" stdout: make string! 1000
+			delete %$tmp.vbs
 		][
-			length? read/lines file
+			stdout: first either R3? [read/lines file][read/direct/lines/part file 1]
 		]
+		also load-dsv stdout stdout: none
 	]
 
-	set 'sheets? funct [
+	set 'sheets? func [
 		"Number of sheets in an XLS file."
 		file [file!]
 	][
-		call-excel-vbs/sheets file 0 ""
+		to-integer first call-excel-vbs file 1 ""
 	]
+
+	set 'slice func ["Extract part of a block" block [block!] len "Row length" [integer!] start [pair!] end [pair!] /local output part] [
+		output: copy []
+		if len < first start [return output]
+		either positive? (first start) + (first end) - (len + 1) [
+			part: 1 + len - (first start)
+		] [
+			part: first end
+		]
+		loop second end [
+			append output copy/part at block first start part
+			block: skip block len
+			if tail? block [break]
+		]
+
+		new-line/all/skip output true part
+	]
+
+
+	;
+	;	Associative array
+	;
+	
+	either zero? select to-map [0 1 1 0] 1 [
+		;
+		;	R3 Map!
+		;
+
+		set 'index funct [
+			"Converts a block of values into key and value pairs."
+			block [block!]
+			width [integer!] "Size of each entry (the skip) with width minus one being the key"
+			/direct "Key / Rowid pairs"
+		][
+			all [not direct width < 2 cause-error 'user 'message "Width must be greater than 1"]
+			any [mod size: length? block width cause-error 'user 'message "Width not a multiple of length"]
+			blk: make block! 2 * rows: size / width
+			either direct [
+				either width = 1 [
+					repeat i rows [
+						append blk reduce [pick block i i]
+					]
+				][
+					repeat i rows [
+						append blk reduce [form copy/part skip block i * width - width width i]
+					]
+				]
+			][
+				either width = 2 [blk: block][
+					size: width - 1
+					repeat i rows [
+						append blk reduce [form copy/part skip block i * width - width size pick block i * width]
+					]
+				]
+			]
+			also to-map blk blk: none
+		]
+
+		set 'lookup func [
+			"Finds a value in the index and returns the value after it."
+			index [map!]
+			key
+		][
+			select index either block? key [form key][key]
+		]
+
+		set 'assign func [
+			"Adds/updates/removes a key and its associated value in an index."
+			index [map!]
+			key
+			value
+		][
+			append index reduce [either block? key [form key][key] value]
+			value
+		]
+
+		set 'retrieve funct [
+			"Return row from block using index to lookup key."
+			block [block!]
+			size [integer!]
+			index [map!]
+			key
+		][
+			all [block? key key: form key]
+			all [idx: select index key copy/part skip block idx * size - size size]
+		]
+	][
+		;
+		;	R2 Hash!
+		;
+
+		set 'index funct [
+			"Converts a block of values into key and value pairs."
+			block [block!]
+			width [integer!] "Size of each entry (the skip) with width minus one being the key"
+			/direct "Key / Rowid pairs"
+		][
+			all [width = 1 return to-map block]
+			any [mod size: length? block width cause-error 'user 'message "Width not a multiple of length"]
+			rows: size / width
+			either direct [
+				blk: make block! rows
+				repeat i rows [append blk form copy/part skip block i * width - width width]
+				also to-map blk blk: none
+			][
+				blk: make map! rows * 2
+				either width = 2 [
+					foreach [key value] block [
+						assign blk key value
+					]
+				][
+					size: width - 1
+					repeat i rows [
+						assign blk copy/part skip block i * width - width size pick block i * width
+					]
+				]
+				also blk blk: none
+			]
+		]
+
+		set 'lookup func [
+			"Finds a value in the index and returns the value after it."
+			index [map!]
+			key
+		][
+			select index as-binary uppercase form key
+		]
+
+		set 'assign funct [
+			"Adds/updates/removes a key and its associated value in an index."
+			index [map!]
+			key
+			value
+		][
+			idx: find index key: as-binary uppercase form key
+			either value [
+				either idx [poke index 1 + index? idx value][append index reduce [key value]]
+			][all [idx remove/part idx 2]]
+			value
+		]
+
+		set 'retrieve funct [
+			"Return row from block using index to lookup key."
+			block [block!]
+			size [integer!]
+			index [map!]
+			key
+		][
+			all [block? key key: form key]
+			all [idx: find index key copy/part skip block (index? idx) * size - size size]
+		]
+	]
+
+	;
+	;	Munge
+	;
 
 	set 'execute funct [
 		"Execute a SQL statement (SQL Server, Access or SQLite)."
@@ -284,17 +498,21 @@ context [
 	]
 
 	set 'load-dsv funct [
+		[catch]
 		"Loads delimiter-separated values from a file."
 		file [file! string!]
 		/delimit {Alternate delimiter (default is tab then comma)}
 			delimiter [char!]
 		/sheet "Excel worksheet (default is 1)"
-			number [integer!]
+			number [integer! string! none!]
+		/part "Consecutive offset position(s) to retrieve"
+			columns [block!]
 		/blocks "Rows as blocks"
 	][
 		if file? file [
+			unless exists? file [throw-error 'access 'cannot-open file]
 			all [zero? size? file return make block! 0]
-			file: either XLS? file [delimiter: #"," read-xls/sheet file any [number 1]][read/string file]
+			file: either XLS? file [delimiter: #"," read-xls/sheet file number][read/string file]
 		]
 		all [empty? file return make block! 0]
 		delimiter: form any [
@@ -304,23 +522,34 @@ context [
 		; Parse rules
 		valchars: remove/part charset [#"^(00)" - #"^(FF)"] crlf
 		valchars: compose [any (remove/part valchars delimiter)]
-		value: [
-			; Value in quotes, with Excel-compatible handling of bad syntax
-			{"} (clear val) x: [to {"} | to end] y: (insert/part tail val x y)
-			any [{"} x: {"} [to {"} | to end] y: (insert/part tail val x y)]
-			[{"} x: valchars y: (insert/part tail val x y) | end]
-			(append blk trim copy val) |
-			; Raw value
-			x: valchars y: (append blk trim copy/part x y)
+		value: either part [
+			[
+				; Value in quotes, with Excel-compatible handling of bad syntax
+				{"} (clear val) x: [to {"} | to end] y: (insert/part tail val x y)
+				any [{"} x: {"} [to {"} | to end] y: (insert/part tail val x y)]
+				[{"} x: valchars y: (insert/part tail val x y) | end]
+				(insert tail blk trim copy val) |
+				; Raw value
+				x: valchars y: (all [find columns ++ pos insert tail blk trim copy/part x y])
+			]
+		][
+			[
+				{"} (clear val) x: [to {"} | to end] y: (insert/part tail val x y)
+				any [{"} x: {"} [to {"} | to end] y: (insert/part tail val x y)]
+				[{"} x: valchars y: (insert/part tail val x y) | end]
+				(insert tail blk trim copy val) |
+				x: valchars y: (insert tail blk trim copy/part x y)
+			]
 		]
 		val: make string! 1000
+		pos: 1
 		either blocks [
 			output: make block! 1
-			parse/all file [z: any [end break | (blk: copy []) value any [delimiter value][crlf | cr | lf | end] (output: insert/only output blk)] z:]
+			parse/all file [z: any [end break | (blk: copy []) value any [delimiter value][crlf | cr | lf | end] (pos: 1 output: insert/only output blk)] z:]
 			blk: head output
 		][
 			blk: make block! 100000
-			parse/all file [z: any [end break | value any [delimiter value][crlf | cr | lf | end]] z:]
+			parse/all file [z: any [end break | value any [delimiter value][crlf | cr | lf | end] (pos: 1) ] z:]
 		]
 		also blk (file: output: blk: value: val: x: y: z: valchars: none)
 	]
@@ -340,7 +569,7 @@ context [
 		/compact "Remove blank rows"
 		/only "Remove duplicate rows"
 		/merge "Join outer block (data) to inner block on keys"
-			inner-block [block!] "Block to lookup values in"
+			inner-block [block! map!] "Block to lookup values in"
 			inner-size [integer!] "Size of each record"
 			cols [block!] "Offset position(s) to retrieve in merged block"
 			keys [block!] "Outer/inner join column pairs"
@@ -350,11 +579,17 @@ context [
 		/save "Write result to a delimited or Excel file"
 			file [file! none!] "csv, xml, xlsx or tab delimited"
 		/list "Return new-line records"
+		/sheet "Excel worksheet (default is 1)"
+			number [integer! string!]
 	][
 		if file? data [
 			any [spec XLS? data spec: cols? data]
-			data: load-dsv data
-			any [spec spec: excel-columns]
+			data: either sheet [
+				load-dsv/sheet data number
+			] [
+				load-dsv data
+			]
+			any [spec spec: to-integer second excel-metrics]
 		]
 
 		all [
@@ -673,10 +908,20 @@ context [
 		"Reads from an XLS file."
 		file [file!]
 		/sheet "Excel worksheet (default is 1)"
-			number [integer!]
+			number [integer! string! none!]
+		/all "All worksheets"
 		/lines "Handles data as lines"
 	][
-		call-excel-vbs file any [number 1] ajoin [{X.ActiveWorkbook.Worksheets(} any [number 1] {).SaveAs "} to-local-file file: join first split-path clean-path file %$tmp.csv {",6:}]
+		either all [
+			call-excel-vbs file 1 ajoin [{For I=1 to X.Worksheets.Count:X.ActiveWorkbook.Worksheets(I).SaveAs "} to-local-file file: join first split-path clean-path file %$tmp {"&I&".csv",6:Next:}]
+			write/string file: join file %.csv ""
+			repeat i to-integer first excel-metrics [
+				write/string/append file read/string sheet: head insert skip tail copy file -4 i
+				delete sheet
+			]
+		][
+			call-excel-vbs file number ajoin [{X.ActiveWorkbook.Worksheets(} sheet? number {).SaveAs "} to-local-file file: join first split-path clean-path file %$tmp.csv {",6:}]
+		]
 		either exists? file [
 			also either lines [
 				remove-each line read/lines file ["," = unique trim line]
@@ -703,9 +948,10 @@ context [
 	]
 
 	set 'unzip funct [
-		"Uncompress a file into a folder of the same name."
+		"Uncompress a file into a folder of the same name (BETA)."
 		file [file!]
 		/only "Use current folder"
+		/flatten "Move sub-folder(s) to current"
 	][
 		any [exists? file cause-error 'access 'cannot-open file]
 		either only [
@@ -720,7 +966,20 @@ context [
 			Set F=Nothing
 			Set S=Nothing
 		}]
-		also call/wait "cmd /C $tmp.vbs" delete %$tmp.vbs
+		folders: remove-each folder read path [#"/" <> last folder]
+		call/wait/shell "$tmp.vbs"
+		delete %$tmp.vbs
+		if flatten [
+			foreach folder remove-each folder read path [#"/" <> last folder] [
+				unless find folders folder [
+					foreach file read join path folder [
+						rename rejoin [path folder file] join %../ file
+					]
+					delete-dir join path folder
+				]
+			]
+		]
+		path
 	]
 
 	set 'worksheet funct [
@@ -741,16 +1000,17 @@ context [
 			cols: length? spec
 		]
 
-		any [integer? rows: divide length? data cols cause-error 'user 'message "column / data mismatch"]
-
 		workbook: ""
 		sheets: []
 
 		all [
 			any [new empty? workbook]
-			insert clear workbook {<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40"><Styles><Style ss:ID="s1"><Interior ss:Color="#DDDDDD" ss:Pattern="Solid"/></Style><Style ss:ID="s2"><NumberFormat ss:Format="Long Date"/></Style></Styles>}
+			insert clear workbook {<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40"><Styles><Style ss:ID="s1"><Interior ss:Color="#DDDDDD" ss:Pattern="Solid"/></Style><Style ss:ID="s2"><NumberFormat ss:Format="Long Date"/></Style><Style ss:ID="s3"><NumberFormat ss:Format="0%"/></Style></Styles>}
 			clear sheets
+			exit
 		]
+
+		any [integer? rows: divide length? data cols cause-error 'user 'message "column / data mismatch"]
 
 		either sheet [trim/with to-xml-string name "/\"][name: reform ["Sheet" 1 + length? sheets]]
 		either find sheets name [cause-error 'user 'message "Duplicate sheet name"][append sheets name]
@@ -775,8 +1035,12 @@ context [
 			loop rows - no-header [
 				append workbook <Row>
 				loop cols [
+					val: first data
 					append workbook case [
-						number? val: first data [
+						all [string? val parse/all val [some digit opt [["." | ","] some digit] "%" end] ] [
+							ajoin [<Cell ss:StyleID="s3"><Data ss:Type="Number"> to decimal! head remove back tail val </Data></Cell>]
+						]	;percent support (added by endo)
+						number? val [
 							ajoin [<Cell><Data ss:Type="Number"> val </Data></Cell>]
 						]
 						date? val [
@@ -812,10 +1076,10 @@ context [
 					foreach tag ["<Workbook" "<?mso-application" "<Style" </Styles> "<Worksheet" <Table> "<Column" <Row> "<Cell" </Row> </Table> </Worksheet> </Workbook>][
 						replace/all workbook tag either tag = "<Cell" [join "^/^-" tag][join "^/" tag]
 					]
-					write file workbook
+					write file turkish-to-utf workbook
 				]
 				%.xlsx [
-					write %$tmp.xml workbook
+					write %$tmp.xml turkish-to-utf workbook
 					also call-excel-vbs %$tmp.xml 1 ajoin [{W.SaveAs "} to-local-file clean-path file {",51:}] delete %$tmp.xml
 					any [exists? file cause-error 'access 'cannot-open file]
 				]
