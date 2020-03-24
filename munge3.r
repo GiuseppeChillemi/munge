@@ -2,67 +2,57 @@
 Rebol [
 	Title:		"Munge functions"
 	Owner:		"Ashley G Truter"
-	Version:	3.0.6
-	Date:		9-Apr-2019
+	Version:	3.0.7
+	Date:		3-Mar-2020
 	Purpose:	"Extract and manipulate tabular values in blocks, delimited files and database tables."
 	Licence:	"MIT. Free for both commercial and non-commercial use."
 	Tested: {
 		Windows
-			REBOL/View		2.7.8		rebol.com
-			R3/64-bit		3.0.99		atronixengineering.com/downloads
-			RED/32-bit		0.6.4		red-lang.org
+			REBOL/View		2.7.8						rebol.com
+			R3/64-bit		3.0.99						atronixengineering.com/downloads
+			RED/32-bit		red-31dec19-6cd70382.exe	red-lang.org
 		macOS
-			REBOL/View		2.7.8		rebol.com
-			RED/32-bit		0.6.4		red-lang.org
+			REBOL/View		2.7.8						rebol.com
+			RED/32-bit		0.6.4						red-lang.org
 	}
 	Changes: {
 		Removed:
-			build, platform and target moved from global context to settings
-			append-column
-			ascii-file?
-			average-of
-			call-oledb
-			delta
-			load-excel (replaced with oledb)
-			map-source
-			oledb-file?
-			order
-			remove-column
-			split-line
-			sum-of
-			to-rebol-date
-			to-rebol-time
+			join (for Red)
+			/day refinement from to-string-date
 		Added:
-			crc32
-			excel?
-			load-xml (uses unarchive)
-			oledb (refactored from load-excel)
-			settings
-			literal column support to load-dsv, load-xml and munge (e.g. load-dsv/part file [1 "No"])
-			named column support to load-dsv, load-xml and munge (e.g. munge/where next [["Name" "Age"]["Sam" 50]] [&Age > 30])
+			last-line
+			to-field-spec
+			deduplicate
+			deflate
+			as-time for basic time string processing
+			as-date for basic date string processing
 		Updated:
-			munge/update refinement removed (use munge/where blk [row/1: 0])
-			munge/delete is now the same as munge/delete/where
-			R2 support in archive and unarchive (requires /View)
-			Excel support (using unarchive) added to cols?, fields?, rows? and sheets?
-			replace-deep replaces multiple values in a single pass
-			to-string-date and to-string-time now support Excel XML date (e.g. "41000") and time (e.g. ("0.33") formats
-			list uses settings/console (default TRUE) to control new-line behaviour
-			load-dsv (plus oledb, sqlcmd and sqlite) and load-xml use settings/as-is (default TRUE) to control trim/lines behaviour
-			read-string optimized
-			read-binary lost its /seek refinement
-			added load-dsv/csv
+			Added /flat refinements to load-dsv and sqlcmd
+			Replaced /affected refinement of sqlcmd with /string
+			Added unarchive support for Red
+			Added limited archive support for Red
+			cause-error logic simplified
+			replaced to-datatype with to datatype!
+			to-string-date now auto-detects /day
+			Added /limit refinement to check
+			sqlcmd error handling
 		Fixed:
-			Several parse copy words that escaped to the global context
-			Unarchive bug
-			/group 'count bug
+			sqlcmd now writes statement > 32k to file
+			having block is now copy/deep
+			first-line
+			missing settings/exited in munge
+			missing copy in load-xml (strings inadvertently shared)
+			adding missing 'flatten console message
 	}
 	Usage: {
 		archive				Compress block of file and data pairs.
+		as-date				Convert a string date to a YYYY-MM-DD string (does not handle Excel or YYYYDDMM).
+		as-time				Convert a string time to a HH:MM string (does not handle Excel).
 		call-out			Call OS command returning STDOUT.
 		check				Verify data structure.
 		cols?				Number of columns in a delimited file or string.
 		crc32				Returns a CRC32 checksum.
+		deduplicate			Remove earliest occurrences of duplicate non-empty key field.
 		delimiter?			Probable delimiter, with priority given to comma, tab, bar, tilde then semi-colon.
 		dezero				Remove leading zeroes from string.
 		digit				DIGIT is a bitset! value: make bitset! #{000000000000FFC0}
@@ -75,6 +65,7 @@ Rebol [
 		fields?				Column names in a delimited file or string.
 		first-line			Returns the first non-empty line of a file.
 		flatten				Flatten nested block(s).
+		last-line			Returns the last non-empty line of a file.
 		latin1-to-utf8		Latin1 binary to UTF-8 string conversion.
 		letter				LETTER is a bitset! value: make bitset! #{00000000000000007FFFFFE07FFFFFE0}
 		letters?			Returns TRUE if data only contains letters.
@@ -100,6 +91,7 @@ Rebol [
 		sqlite				Execute a SQLite statement.
 		to-column-alpha		Convert numeric column reference to an alpha column reference.
 		to-column-number	Convert alpha column reference to a numeric column reference.
+		to-field-spec		Convert field strings to words.
 		to-string-date		Convert a string or Rebol date to a YYYY-MM-DD string.
 		to-string-time		Convert a string or Rebol time to a HH:MM:SS string.
 		unarchive			Decompresses archive (only works with compression methods 'store and 'deflate).
@@ -111,11 +103,16 @@ Rebol [
 case [
 	;	*** Red ***
 	not rebol [
-		foreach word [compress decimal! deline invalid-utf? join reform to-rebol-file] [
+		foreach word [ajoin decimal! deline invalid-utf? reform to-rebol-file] [
 			all [value? word print [word "already defined!"]]
 		]
 
-		compress: function [data /gzip] [data]
+		ajoin: function [
+			block [block!]
+			"Reduces and joins a block of values into a new string."
+		] [
+			make string! reduce block
+		]
 
 		decimal!: :float!
 
@@ -133,15 +130,6 @@ case [
 			binary [binary!]
 		] compose [
 			find binary (make bitset! [192 193 245 - 255])
-		]
-
-		join: function [
-			"Concatenates values"
-			value "Base value"
-			rest "Value or block of values"
-		] [
-			value: either series? value [copy value] [form value]
-			repend value rest
 		]
 
 		reform: function [
@@ -162,7 +150,7 @@ case [
 		average: function [
 			"Returns the average of all values in a block"
 			block [block!]
-		][
+		] [
 			all [empty? block return none]
 			divide sum block length? block
 		]
@@ -196,7 +184,7 @@ case [
 		average: function [
 			"Returns the average of all values in a block"
 			block [block!]
-		][
+		] [
 			all [empty? block return none]
 			divide sum block length? block
 		]
@@ -244,7 +232,7 @@ case [
 		]
 	]
 	true [
-		cause-error 'user 'message ["Unsupported Rebol version or derivative"]
+		settings/error "Unsupported Rebol version or derivative"
 	]
 ]
 
@@ -274,6 +262,12 @@ ctx-munge: context [
 			name [word! none!]
 			/file path [file! url! binary!]
 		] [
+			all [
+				file
+				not binary! path
+				not exists? path
+				error reform ["cannot open" path]
+			]
 			any [trace exit]
 			either word? name [
 				insert/dup message: reform ["Call" either all [file not binary? path] [reform [name "on" last split-path path]] [name]] "  " length? stack
@@ -297,9 +291,9 @@ ctx-munge: context [
 
 		error: function [
 			message [string!]
-		] compose [
+		] [
 			clear stack
-			(either build = 'red [[cause-error 'user 'message reduce [message]]] [[cause-error 'user 'message message]])
+			cause-error 'user 'message message
 		]
 
 		as-is: console: trace: true
@@ -311,7 +305,7 @@ ctx-munge: context [
 	] compose/deep [
 		to-short: function [i] [(
 			either settings/build = 'r2 [[
-				reverse next next load make string! reduce ["#{" to-hex i "}"]
+				reverse at load make string! reduce ["#{" to-hex i "}"] 3
 			]] [[
 				copy/part reverse to binary! i 2
 			]]
@@ -327,13 +321,13 @@ ctx-munge: context [
 
 		case [
 			empty? source [none]
-			not block? source [
-				join #{1F8B08000000000002FF} next next head either settings/build = 'r2 [
-					change skip tail compress source -8 to-long crc32 source
-				] [
-					reverse/part skip tail compress/gzip source -8 4
+			not block? source [(
+				switch settings/build [
+					r2	[[join #{1F8B0800000000000404} at head change skip tail compress source -8 to-long crc32 source 3]]
+					r3	[[join #{1F8B0800000000000404} at head reverse/part skip tail compress/gzip source -8 4 3]]
+					red	[[compress source]]
 				]
-			]
+			)]
 			true [
 				bin: copy #{}
 				dir: copy #{}
@@ -341,11 +335,19 @@ ctx-munge: context [
 				foreach [file series] source [
 					all [none? series series: make string! 0]
 
-					any [file? file cause-error 'user 'message reduce [reform ["found" type? file "where file! expected"]]]
-					any [series? series cause-error 'user 'message reduce [reform ["found" type? series "where series! expected"]]]
+					any [file? file settings/error reform ["found" type? file "where file! expected"]]
+					any [series? series settings/error reform ["found" type? series "where series! expected"]]
 
-					method: either greater? length? series length? compressed-data: compress data: to binary! series [
-						compressed-data: copy/part skip compressed-data 2 skip tail compressed-data -8
+					compressed-data: compress data: to binary! series
+
+					(either settings/build = 'red [[
+						remove/part compressed-data 10
+						insert compressed-data #{789C}
+						reverse/part skip tail compressed-data -8 4
+					]] [])
+
+					method: either greater? length? series length? compressed-data [
+						compressed-data: (either settings/build = 'red [[compress/deflate data]] [[copy/part at compressed-data 3 skip tail compressed-data -8]])
 						#{0800}				; deflate
 					] [
 						compressed-data: data
@@ -413,6 +415,55 @@ ctx-munge: context [
 		]
 	]
 
+	as-date: function [
+		"Convert a string date to a YYYY-MM-DD string (does not handle Excel or YYYYDDMM)"
+		string [string!]
+		/mdy "Month/Day/Year format"
+	] compose/deep [
+		any [
+			attempt [
+				(either settings/build = 'red [[
+					date: split string make bitset! "/- "
+					date: to date! either mdy [
+						reduce [to integer! date/2 to integer! date/1 to integer! date/3]
+					] [
+						reduce [to integer! date/1 to integer! date/2 to integer! date/3]
+					]
+				]] [[
+					date: to date! either mdy [
+						date: parse string "/- "
+						ajoin [date/2 "/" date/1 "/" date/3]
+					] [first parse string " "]
+				]])
+				ajoin [date/year "-" next form 100 + date/month "-" next form 100 + date/day]
+			]
+			settings/error reform [string "is not a valid date"]
+		]
+	]
+
+	as-time: function [
+		"Convert a string time to an HH:MM string (does not handle Excel or YYYYDDMM)"
+		time [string!]
+	] compose/deep [
+		either attempt [
+			(either settings/build = 'red [[
+				either find time "PM" [
+					hhmm: to time! time
+					all [hhmm/1 < 13 hhmm/1: hhmm/1 + 12]
+					hhmm
+				] [
+					hhmm: to time! time
+				]
+			]] [[
+				hhmm: to time! trim/all copy time
+			]])
+		] [
+			ajoin [next form 100 + hhmm/hour ":" next form 100 + hhmm/minute]
+		] [
+			settings/error reform [time "is not a valid time"]
+		]
+	]
+
 	call-out: function [
 		"Call OS command returning STDOUT"
 		cmd [string!]
@@ -426,24 +477,31 @@ ctx-munge: context [
 	check: function [
 		"Verify data structure"
 		data [block!]
+		/limit messages [integer!] "Limit messages to display"
 	] [
+		limit: any [messages 1000]
+		messages: 0
 		unless empty? data [
 			cols: length? data/1
 			i: 1
 			foreach row data [
 				if message: case [
-					not block? row			[reform ["expected block but found" type? row]]
-					zero? length? row		["empty"]
-					cols <> length? row		[reform ["expected" cols "column(s) but found" length? row]]
-					not not find row none	["contains a none value"]
-					block? row/1			["did not expect first column to be a block"]
+					not block? row		[reform ["expected block but found" type? row]]
+					zero? length? row	["empty"]
+					cols <> length? row	[reform ["expected" cols "column(s) but found" length? row]]
+					find row none		["contains a none value"]
+					find row block!		["contains a block value"]
 				] [
-					cause-error 'user 'message reduce [reform ["Row" i message]]
+					all [
+						messages < limit
+						print reform ["Row" i message]
+					]
+					messages: messages + 1
 				]
 				i: i + 1
 			]
 		]
-		true
+		either zero? messages [true] [false]
 	]
 
 	cols?: function [
@@ -528,6 +586,42 @@ ctx-munge: context [
 		red	[[checksum data 'CRC32]]
 	]
 
+	deduplicate: function [
+		"Remove earliest occurrences of duplicate non-empty key field"
+		blk [block!]
+		key [word! integer!]
+		/latest "Remove latest occurrences of duplicate key field"
+	] [
+		any [1 < length? blk return blk]
+
+		all [
+			word? key
+			any [
+				key: index? find to-field-spec blk/1 key
+				settings/error "Invalid key column"
+			]
+		]
+
+		row-map: make map! length? blk
+
+		any [latest reverse blk]
+
+		remove-each row blk compose/deep [
+			case [
+				all [series? pick row (key) empty? pick row (key)]	[false]
+				select row-map pick row (key)						[true]
+				true [
+					put row-map pick row (key) 0
+					false
+				]
+			]
+		]
+
+		any [latest reverse blk]
+
+		blk
+	]
+
 	delimiter?: function [
 		"Probable delimiter, with priority given to comma, tab, bar, tilde then semi-colon"
 		data [file! url! string!]
@@ -588,7 +682,7 @@ ctx-munge: context [
 		cols [integer!]
 	] [
 		all [block? data/1 return data]
-		any [integer? rows: divide length? data cols cause-error 'user 'message ["Cols not a multiple of length"]]
+		any [integer? rows: divide length? data cols settings/error "Cols not a multiple of length"]
 		repeat i rows [
 			change/part/only at data i copy/part at data i cols cols
 		]
@@ -613,6 +707,7 @@ ctx-munge: context [
 			binary!		[not not find copy/part data 8 #{3C3F786D6C}]	; ignore UTF mark
 		] [
 			all [
+				suffix? data
 				%.xls = copy/part suffix? data 4
 				#{504B} = read-binary/part data 2	; PK
 			]
@@ -624,7 +719,7 @@ ctx-munge: context [
 		words [block!] "Words to export"
 	] [
 		foreach word words [
-			do compose [(to-set-word word) (to-get-word in self word)]
+			do compose [(to set-word! word) (to get-word! in self word)]
 		]
 		words
 	]
@@ -647,10 +742,10 @@ ctx-munge: context [
 					make block! 0
 				]
 				#"^"" = first data [
-					flatten load-dsv/ignore/with/csv data any [delimiter delimiter? data]
+					load-dsv/flat/ignore/with/csv data any [delimiter delimiter? data]
 				]
 				true [
-					flatten load-dsv/ignore/with data any [delimiter delimiter? data]
+					load-dsv/flat/ignore/with data any [delimiter delimiter? data]
 				]
 			]
 		] all [settings/console settings/exited]
@@ -660,14 +755,14 @@ ctx-munge: context [
 		"Returns the first non-empty line of a file"
 		data [file! url! string!]
 	] [
-		data: deline/lines either file? data [
-			latin1-to-utf8 read-binary/part data 4096
-		] [
+		data: deline/lines either string? data [
 			copy/part data 4096
+		] [
+			latin1-to-utf8 read-binary/part data 4096
 		]
 
 		foreach line data [
-			any [empty? line return line]
+			any [find ["" "^L"] line return line]
 		]
 
 		copy ""
@@ -677,12 +772,34 @@ ctx-munge: context [
 		"Flatten nested block(s)"
 		data [block!]
 	] [
-		either empty? data [data] [
-			result: copy []
-			foreach row data [
-				append result row
-			]
+		all [settings/console settings/called 'flatten]
+		result: copy []
+		foreach row data [
+			append result row
 		]
+		all [settings/console settings/exited]
+		result
+	]
+
+	last-line: function [
+		"Returns the last non-empty line of a file"
+		data [file! url! string!]
+	] compose/deep [
+		data: reverse deline/lines either string? data [skip data -4096 + length? data] [
+			latin1-to-utf8 (
+				switch settings/build [
+					r2	[[skip tail read/binary data -4096]]
+					r3	[[read/seek data max 0 -4096 + size? data]]
+					red	[[read/binary/seek data max 0 -4096 + size? data]]
+				]
+			)
+		]
+
+		foreach line data [
+			any [find ["" "^L"] line return line]
+		]
+
+		copy ""
 	]
 
 	latin1-to-utf8: function [ ; http://stackoverflow.com/questions/21716201/perform-file-encoding-conversion-with-rebol-3
@@ -698,6 +815,11 @@ ctx-munge: context [
 			mark: data
 			while [mark: find mark #{C2A0}] [
 				change/part mark #{20} 2
+			]
+			;	replace dash with hyphen
+			mark: data
+			while [mark: find mark #{E28093}] [
+				change/part mark #{2D} 3
 			]
 			;	replace latin1 with UTF
 			(either settings/build = 'r2 [] [[
@@ -763,16 +885,22 @@ ctx-munge: context [
 			delimiter [char!]
 		/ignore "Ignore truncated row errors"
 		/csv "Parse as CSV even though not comma-delimited"
+		/flat "Flatten rows"
 	] compose [
 		all [settings/console settings/called 'load-dsv]
 
 		source: either string? source [
 			deline source
 		] [
-			all [
-				file? source
-				#{22} = read-binary/part source 1
-				csv: true
+			if file? source [
+				all [
+					excel? source
+					settings/error reform [last split-path source "is an Excel file"]
+				]
+				all [
+					#{22} = read-binary/part source 1
+					csv: true
+				]
 			]
 			read-string source
 		]
@@ -780,7 +908,7 @@ ctx-munge: context [
 		any [with delimiter: delimiter? source]
 
 		(either settings/build = 'r2 [[
-			valchars: compose [any (remove/part make bitset! [#"^(00)" - #"^(FF)"] join delimiter lf)]
+			valchars: compose [any (remove/part make bitset! [#"^(00)" - #"^(FF)"] ajoin [delimiter lf])]
 			value: either any [delimiter = #"," csv] [
 				[
 					any [#" "] {"} copy v [to {"} | to end]
@@ -848,13 +976,20 @@ ctx-munge: context [
 					]
 					compose [row: (part)]
 				] [])
-				(either settings/build = 'r2 [[row <> pick tail blk -1 append/only]] [[row <> last blk append/only]]) blk row
+				(either settings/build = 'r2 [
+					compose [row <> pick tail blk -1 (either flat [[append]] [[append/only]])]
+				] [
+					compose [row <> last blk (either flat [[append]] [[append/only]])]
+				]) blk row
 			]
 		]
 
 		parse-series source bind rule 'row
 
-		list blk
+		either flat [
+			all [settings/console settings/exited]
+			either ignore [blk] [new-line/all/skip blk true cols]
+		] [list blk]
 	]
 
 	load-fixed: function [
@@ -968,7 +1103,7 @@ ctx-munge: context [
 					thru {<c r="} v: any letter x: (col: copy/part v x)
 					copy type thru ">"
 					opt ["<v>" copy val to "</v></c>" (
-						poke row to-column-number col either find type {t="s"} [pick strings 1 + to integer! val] [trim val]
+						poke row to-column-number col either find type {t="s"} [copy pick strings 1 + to integer! val] [trim val]
 					) "</v></c>"]
 					opt [newline]
 					opt ["</row>" ()]
@@ -983,7 +1118,7 @@ ctx-munge: context [
 					thru {<c r="} copy col to digit
 					copy type thru ">"
 					opt ["<v>" copy val to "</v></c>" (
-						poke row to-column-number col either find type {t="s"} [pick strings 1 + to integer! val] [trim val]
+						poke row to-column-number col either find type {t="s"} [copy pick strings 1 + to integer! val] [trim val]
 					) "</v></c>"]
 					opt [newline]
 					opt ["</row>" ()]
@@ -1109,7 +1244,7 @@ ctx-munge: context [
 			condition
 		/group "One of count, max, min or sum"
 			having [word! block!] "Word or expression that can reference the initial result set column as count, max, etc"
-		/spec "Return coulmns and condition with field substitutions"
+		/spec "Return columns and condition with field substitutions"
 	] [
 		all [empty? data return data]
 
@@ -1147,9 +1282,8 @@ ctx-munge: context [
 		;	Replace field references with row paths
 
 		if find reform [columns condition] "&" [
-			repeat i length? fields: copy/deep first head data [
-				poke fields i to word! join '& trim/with trim/all form fields/:i "@#$%^,"
-			]
+
+			fields: to-field-spec first head data
 
 			if find form columns "&" [
 				;	replace &Word with n
@@ -1222,7 +1356,10 @@ ctx-munge: context [
 						]
 					)
 				]
-				all [empty? blk also return blk all [settings/console settings/exited]]
+				if empty? blk [
+					all [settings/console settings/exited]
+					return blk
+				]
 				data: blk
 			]
 		]
@@ -1276,9 +1413,8 @@ ctx-munge: context [
 			data: blk
 
 			if block? having [
-				replace-deep having reduce [operation append to path! 'row length? data/1]
-				all [settings/console settings/exited]
-				return munge/where data having
+				replace-deep having: copy/deep having reduce [operation append to path! 'row length? data/1]
+				data: munge/where data having
 			]
 		]
 
@@ -1292,15 +1428,14 @@ ctx-munge: context [
 			statement [string!] "SQL statement in the form (Excel) 'SELECT F1 FROM SHEET1' or (Access) 'SELECT Column FROM Table'"
 			/local sheet
 		] compose/deep [
-			any [exists? file cause-error 'access 'cannot-open reduce [file]]
 			all [settings/console settings/called/file 'oledb file]
 			statement: replace/all copy statement {'} {''}
 			properties: either %.accdb = suffix? file [""] [
 				parse statement [thru "FROM " copy sheet [to " " | to end]]
-				replace statement reform ["FROM" sheet] rejoin ["FROM ['+$o.GetSchema('Tables').rows[" -1 + to integer! skip sheet 5 "].TABLE_NAME+']"]
+				replace statement reform ["FROM" sheet] ajoin ["FROM ['+$o.GetSchema('Tables').rows[" -1 + to integer! skip sheet 5 "].TABLE_NAME+']"]
 				{;Extended Properties=''Excel 12.0 Xml;HDR=NO;IMEX=1;Mode=Read''}
 			]
-			also remove load-dsv/csv/with call-out rejoin [
+			also remove load-dsv/csv/with call-out ajoin [
 				(either settings/target = 64 ["powershell "] ["C:\Windows\SysNative\WindowsPowerShell\v1.0\powershell.exe "])
 				{-nologo -noprofile -command "}
 					{$o=New-Object System.Data.OleDb.OleDbConnection('Provider=Microsoft.ACE.OLEDB.12.0;}
@@ -1344,7 +1479,6 @@ ctx-munge: context [
 		source [file! url! binary!]
 	] compose/deep [
 		all [settings/console settings/called/file 'read-string source]
-;		(either settings/build = 'r2 [[any [binary? source source: read/binary/direct source]]] [])
 		i: 0
 		also either binary? source [
 			s: make string! length: length? source
@@ -1379,7 +1513,7 @@ ctx-munge: context [
 	]
 
 	replace-deep: function [
-		"Replaces all occurences of search values with new values in a block or nested block"
+		"Replaces all occurrences of search values with new values in a block or nested block"
 		data [block!] "Block to replace within (modified)"
 		map [map! block!] "Map of values to replace"
 	] compose/deep [
@@ -1412,7 +1546,7 @@ ctx-munge: context [
 			any [
 				binary? data
 				data: unarchive/only data rejoin [%xl/worksheets/sheet any [number 1] %.xml]
-				cause-error 'user 'message reduce [reform [number "not a valid sheet number"]]
+				settings/error reform [number "not a valid sheet number"]
 			]
 			all [
 				find data #{3C726F77}
@@ -1465,12 +1599,19 @@ ctx-munge: context [
 			/key "Columns to convert to integer"
 				columns [integer! block!]
 			/headings "Keep column headings"
-			/string
-			/affected "Return rows affected instead of empty block"
+			/string "Return string instead of block"
+			/flat "Flatten rows"
 		] [
 			all [settings/console settings/called 'sqlcmd]
 
-			stdout: call-out reform compose ["sqlcmd -X -S" server "-d" database "-I -Q" rejoin [{"} statement {"}] {-W -w 65535 -s"^-"} (either headings [] [{-h -1}])]
+			stdout: either 32000 > length? statement [
+				call-out reform compose ["sqlcmd -m 1 -X -S" server "-d" database "-I -Q" ajoin [{"} statement {"}] {-W -w 65535 -s"^-"} (either headings [] [{-h -1}])]
+			] [
+				write file: to file! append replace datetime " " "_" %.sql statement
+				also call-out reform compose ["sqlcmd -m 1 -X -S" server "-d" database "-I -i" file {-W -w 65535 -s"^-"} (either headings [] [{-h -1}])] attempt [delete file]
+			]
+
+			all [empty? stdout return either string [make string! 0] [make block! 0]]
 
 			case [
 				string [
@@ -1479,27 +1620,56 @@ ctx-munge: context [
 				]
 				stdout/1 = #"^/" [
 					all [settings/console settings/exited]
-					either affected [last deline/lines stdout] [make block! 0]
+					make block! 0
 				]
 				like stdout "Msg*,*Level*,*State*,*Server" [
 					settings/error trim/lines find stdout "Line"
 				]
+				like stdout "Warning:*(0 rows affected)" [
+					settings/error find/tail first deline/lines stdout "Warning: "
+				]
 				true [
-					stdout: load-dsv/with copy/part stdout find stdout "^/^/(" #"^-"
+					stdout: copy/part stdout find stdout "^/^/("
 
-					all [headings remove next stdout]
+					either flat [
+						cols: cols?/with first-line stdout tab
 
-					foreach row stdout [
-						foreach val row [
+						stdout: load-dsv/flat/with stdout tab
+
+						all [headings remove/part skip stdout cols cols]
+
+						foreach val stdout [
 							all ["NULL" == val clear val]
 						]
-					]
 
-					all [
-						key
-						foreach row either headings [next stdout] [stdout] [
+						if key [
+							all [headings stdout: skip stdout cols]
+							rows: divide length? stdout cols
 							foreach i to block! columns [
-								row/:i: to integer! row/:i
+								loop rows [
+									stdout/:i: to integer! stdout/:i
+									i: i + cols
+								]
+							]
+							stdout: head stdout
+						]
+					] [
+						stdout: load-dsv/with stdout tab
+
+						all [headings remove next stdout]
+
+						foreach row stdout [
+							foreach val row [
+								all ["NULL" == val clear val]
+							]
+						]
+
+						all [
+							key
+							foreach row either headings [next stdout] [stdout] [
+								foreach i to block! columns [
+									row/:i: to integer! row/:i
+								]
 							]
 						]
 					]
@@ -1517,17 +1687,17 @@ ctx-munge: context [
 		database [file! url!]
 		statement [string!]
 	] [
-		load-dsv/with call-out rejoin [{sqlite3 -separator "^-" } to-local-file database { "} statement {"}] tab
+		load-dsv/with call-out ajoin [{sqlite3 -separator "^-" } to-local-file database { "} statement {"}] tab
 	]
 
 	to-column-alpha: function [
 		"Convert numeric column reference to an alpha column reference"
 		number [integer!] "Column number between 1 and 702"
 	] [
-		any [positive? number cause-error 'user 'message ["Positive number expected"]]
-		any [number <= 702 cause-error 'user 'message ["Number cannot exceed 702"]]
+		any [positive? number settings/error "Positive number expected"]
+		any [number <= 702 settings/error "Number cannot exceed 702"]
 		either number <= 26 [form #"@" + number] [
-			rejoin [
+			ajoin [
 				#"@" + to integer! number - 1 / 26
 				either zero? r: mod number 26 ["Z"] [#"@" + r]
 			]
@@ -1538,13 +1708,29 @@ ctx-munge: context [
 		"Convert alpha column reference to a numeric column reference"
 		alpha [word! string! char!]
 	] [
-		any [find [1 2] length? alpha: uppercase form alpha cause-error 'user 'message ["One or two letters expected"]]
-		any [find letter last alpha cause-error 'user 'message ["Valid characters are A-Z"]]
+		any [find [1 2] length? alpha: uppercase form alpha settings/error "One or two letters expected"]
+		any [find letter last alpha settings/error "Valid characters are A-Z"]
 		minor: subtract to integer! last alpha: uppercase form alpha 64
 		either 1 = length? alpha [minor] [
-			any [find letter alpha/1 cause-error 'user 'message ["Valid characters are A-Z"]]
+			any [find letter alpha/1 settings/error "Valid characters are A-Z"]
 			(26 * subtract to integer! alpha/1 64) + minor
 		]
+	]
+
+	to-field-spec: function [
+		"Convert field strings to words"
+		fields [block!]
+	] [
+		invalid-spec-chars: complement charset [#"A" - #"Z" #"a" - #"z" #"0" - #"9" #"-" #"_" #"."]
+
+		blk: copy []
+
+		foreach field fields [
+			remove-each char field: form field [find invalid-spec-chars char]
+			append blk to word! append copy "&" field
+		]
+
+		blk
 	]
 
 	to-string-date: function [
@@ -1552,7 +1738,6 @@ ctx-munge: context [
 		date [string! date!]
 		/mdy "Month/Day/Year format"
 		/ydm "Year/Day/Month format"
-		/day "Day precedes date"
 	] compose/deep [
 		if string? date [
 			string: date
@@ -1566,38 +1751,39 @@ ctx-munge: context [
 							date/3: date/2
 							date/2: day
 						]
-						date
 					] [
-						all [day date: copy date remove/part date next find date " "]
+						all [
+							find ["Mon" "Tue" "Wed" "Thu" "Fri" "Sat" "Sun"] copy/part date 3
+							date: remove/part copy date index? find date " "
+						]
 						date: either digits? date [
 							;	YYYYDDMM
 							reduce [copy/part date 4 copy/part skip date 4 2 copy/part skip date 6 2]
 						] [
-							(either settings/build = 'red [[split date make bitset! "/-"]] [[parse date "/- "]])
+							(either settings/build = 'red [[split date make bitset! "/- "]] [[parse date "/- "]])
 						]
-						repeat i 3 [date/:i: to integer! date/:i]
 						date: to date! case [
-							mdy		[reduce [date/2 date/1 date/3]]
-							ydm		[reduce [date/2 date/3 date/1]]
-							true	[reduce [date/1 date/2 date/3]]
+							mdy		[reduce [to integer! date/2 to integer! date/1 to integer! date/3]]
+							ydm		[reduce [to integer! date/2 to integer! date/3 to integer! date/1]]
+							true	[reduce [to integer! date/1 to integer! date/2 to integer! date/3]]
 						]
 						all [
 							date/year < 100
 							date/year: date/year + either date/year <= (now/year - 1950) [2000] [1900]
 						]
-						date
 					]
+					true
 				]
-				cause-error 'user 'message reduce [reform [string "is not a valid date"]]
+				settings/error reform [string "is not a valid date"]
 			]
 		]
-		rejoin [date/year "-" next form 100 + date/month "-" next form 100 + date/day]
+		ajoin [date/year "-" next form 100 + date/month "-" next form 100 + date/day]
 	]
 
 	to-string-time: function [
 		"Convert a string or Rebol time to a HH:MM:SS string"
 		time [string! date! time!]
-		/precise
+		/precise "HH:MM:SS.mmm"
 	] compose/deep [
 		unless time? time [
 			string: time
@@ -1607,7 +1793,7 @@ ctx-munge: context [
 						date? time				[time/time]
 						;	don't match "00:00:00.000"
 						find/part time "." 2	[24:00:00 * to decimal! time]	; Excel
-						digits? time			[to time! rejoin [copy/part time 2 ":" copy/part skip time 2 2 ":" copy/part skip time 4 2]]
+						digits? time			[to time! ajoin [copy/part time 2 ":" copy/part skip time 2 2 ":" copy/part skip time 4 2]]
 						true [
 							(either settings/build = 'red [[
 								either find time "PM" [
@@ -1621,10 +1807,10 @@ ctx-munge: context [
 						]
 					]
 				]
-				cause-error 'user 'message reduce [reform [string "is not a valid time"]]
+				settings/error reform [string "is not a valid time"]
 			]
 		]
-		rejoin [
+		ajoin [
 			next form 100 + time/hour ":"
 			next form 100 + time/minute ":"
 			next form 100 + to integer! time/second
@@ -1632,61 +1818,65 @@ ctx-munge: context [
 		]
 	]
 
-	if settings/build = 'r2 [
-		deflate: function [
-			"Decompresses a gzip encoding"
-			data [binary!]
-		][
-			any [view? cause-error 'user 'message ["Requires /View"]]
+	deflate: function [
+		"Decompresses a gzip encoding"
+		data [binary!]
+	] either settings/build = 'r3 [[
+		decompress/gzip append copy #{789C} skip head reverse/part skip tail copy data -8 4 10
+	]] [compose/deep [
+		(either settings/build = 'r2 [[any [view? settings/error "Requires /View"]]] [])
 
-			set?: func [value bit][not zero? value and to-integer 2 ** bit]
+		set?: function [value bit] [not zero? value and to integer! 2 ** bit]
 
-			any [#{1F8B08} = copy/part data 3 cause-error 'user 'message ["Bad ID or Unknown Method"]]
+		any [#{1F8B08} = copy/part data 3 settings/error "Bad ID or Unknown Method"]
 
-			flags: data/4
+		flags: data/4
 
-			data: skip data 10
+		data: skip data 10
 
-			all [set? flags 1 data: skip data 2]											; crc-16?
-			all [set? flags 2 data: skip data 2 data: skip data data/2 * 256 + data/1 + 2]	; extra?
-			all [set? flags 3 data: find/tail data #"^@"]									; name?
+		all [set? flags 1 data: skip data 2]											; crc-16?
+		all [set? flags 2 data: skip data 2 data: skip data data/2 * 256 + data/1 + 2]	; extra?
+		all [set? flags 3 data: find/tail data #"^@"]									; name?
 
-			size: to integer! head reverse copy skip tail data -4
+		size: to integer! head reverse copy skip tail data -4
 
-			data: copy/part data skip tail data -8
+		data: copy/part data skip tail data -8
 
-			data: load rejoin [
-				#{89504E47} #{0D0A1A0A}	; signature
-				#{0000000D}				; IHDR length
-				"IHDR"					; type: header
-				load make string! reduce ["#{" to-hex size "}"]				; width = uncompressed size
-				#{00000001}	; height = 1 line
-				#{08}		; bit depth
-				#{00}		; color type = grayscale
-				#{00}		; compression method
-				#{00}		; filter method = none
-				#{00}		; interlace method = no interlace
-				#{00000000}	; no checksum
-				load make string! reduce ["#{" to-hex 8 + length? data "}"]	; length
-				"IDAT"		; type: data
-				#{789C}		; zlib header
-				#{00 0100 FEFF 00} ; 0 = no filter for scanline
-				data
-				#{00000000}	; no checksum
-				#{00000000}	; length
-				"IEND"		; type: end
-				#{00000000}	; no checksum
-			]
+		data: (either settings/build = 'red [[load/as]] [[load]]) rejoin [
+			#{89504E470D0A1A0A}	; signature
+			#{0000000D}			; IHDR length
+			"IHDR"				; type: header
+								; width = uncompressed size
+			(either settings/build = 'red [[to binary! size]] [[load make string! reduce ["#{" to-hex size "}"]]])
+			#{00000001}			; height = 1 line
+			#{08}				; bit depth
+			#{00}				; color type = grayscale
+			#{00}				; compression method
+			#{00}				; filter method = none
+			#{00}				; interlace method = no interlace
+			#{00000000}			; no checksum
+								; length
+			(either settings/build = 'red [[to binary! 8 + length? data]] [[load make string! reduce ["#{" to-hex 8 + length? data "}"]]])
+			"IDAT"				; type: data
+			#{789C}				; zlib header
+			#{000100FEFF00}		; 0 = no filter for scanline
+			data
+			#{00000000}			; no checksum
+			#{00000000}			; length
+			"IEND"				; type: end
+			#{00000000}			; no checksum
+		] (either settings/build = 'red [['png]] [])
 
-			bin: make binary! size
+		bin: make binary! size
 
-			repeat i size [
-				insert tail bin to char! pick pick data i 1
-			]
+		(either settings/build = 'red [[
+			foreach tuple data [append bin tuple/1]
+		]] [[
+			repeat i size [insert tail bin to char! pick pick data i 1]
+		]])
 
-			bin
-		]
-	]
+		bin
+	]]
 
 	unarchive: function [
 		"Decompresses archive (only works with compression methods 'store and 'deflate)"
@@ -1704,11 +1894,7 @@ ctx-munge: context [
 				either info [
 					to integer! reverse skip tail copy source -4
 				] [
-					switch settings/build [
-						r2	[deflate source]
-						r3	[decompress/gzip join #{789C} skip head reverse/part skip tail copy source -8 4 10]
-						red	[decompress source]
-					]
+					deflate source
 				]
 			]
 			#{504B0304} <> copy/part source 4 [
@@ -1724,7 +1910,7 @@ ctx-munge: context [
 				extract: either zero? source/8 [[
 					;	Local file header - CRC-32, Compressed & Uncompressed fields precede data
 					data: compressed-size skip
-				]][[
+				]] [[
 					;	Data descriptor - data precedes CRC-32, Compressed & Uncompressed fields
 					copy data to #{504B0708} 4 skip
 					copy crc 4 skip
@@ -1754,11 +1940,7 @@ ctx-munge: context [
 								true [
 									reduce [
 										name
-										switch settings/build [
-											r2	[deflate rejoin [#{1F8B08000000000002FF} copy/part data compressed-size crc size]]
-											r3	[decompress/gzip rejoin [#{789C} copy/part data compressed-size reverse crc size]]
-											red [decompress/deflate rejoin [copy/part data compressed-size crc size] to-int size]
-										]
+										deflate rejoin [#{1F8B08000000000002FF} copy/part data compressed-size crc size]
 									]
 								]
 							]
@@ -1794,9 +1976,9 @@ ctx-munge: context [
 			foreach value row [
 				append s (
 					either %.csv = suffix? file [
-						[rejoin [either any [find val: trim/with form value {"} "," find val lf] [rejoin [{"} val {"}]] [val] ","]]
+						[ajoin [either any [find val: trim/with form value {"} "," find val lf] [ajoin [{"} val {"}]] [val] ","]]
 					] [
-						[rejoin [value "^-"]]
+						[ajoin [value "^-"]]
 					]
 				)
 			]
@@ -1812,7 +1994,7 @@ ctx-munge: context [
 		data [block!] "Name [string!] Data [block!] Widths [block!] records"
 		/filter "Add auto filter"
 	] [ ; http://officeopenxml.com/anatomyofOOXML-xlsx.php
-		any [%.xlsx = suffix? file cause-error 'user 'message ["not a valid .xlsx file extension"]]
+		any [%.xlsx = suffix? file settings/error "not a valid .xlsx file extension"]
 
 		xml-content-types:	copy ""
 		xml-workbook:		copy ""
@@ -1827,19 +2009,19 @@ ctx-munge: context [
 			unless empty? block [
 				width: length? spec
 
-				append xml-content-types rejoin [{<Override PartName="/xl/worksheets/sheet} sheet-number {.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>}]
-				append xml-workbook rejoin [{<sheet name="} sheet-name {" sheetId="} sheet-number {" r:id="rId} sheet-number {"/>}]
-				append xml-workbook-rels rejoin [{<Relationship Id="rId} sheet-number {" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet} sheet-number {.xml"/>}]
+				append xml-content-types ajoin [{<Override PartName="/xl/worksheets/sheet} sheet-number {.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>}]
+				append xml-workbook ajoin [{<sheet name="} sheet-name {" sheetId="} sheet-number {" r:id="rId} sheet-number {"/>}]
+				append xml-workbook-rels ajoin [{<Relationship Id="rId} sheet-number {" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet} sheet-number {.xml"/>}]
 
 				;	%xl/worksheets/sheet<n>.xml
 
-				blk: rejoin [
+				blk: ajoin [
 					xml-version
 					{<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 						<cols>}
 				]
 				repeat i width [
-					append blk rejoin [{<col min="} i {" max="} i {" width="} spec/:i {"/>}]
+					append blk ajoin [{<col min="} i {" max="} i {" width="} spec/:i {"/>}]
 				]
 				append blk "</cols><sheetData>"
 				foreach row block [
@@ -1847,10 +2029,10 @@ ctx-munge: context [
 					foreach value row [
 						append blk case [
 							number? value [
-								rejoin ["<c><v>" value "</v></c>"]
+								ajoin ["<c><v>" value "</v></c>"]
 							]
 							"=" = copy/part value: form value 1 [
-								rejoin ["<c><f>" next value "</f></c>"]
+								ajoin ["<c><f>" next value "</f></c>"]
 							]
 							true [
 								foreach [char code] [
@@ -1861,14 +2043,14 @@ ctx-munge: context [
 									{'}		"&apos;"
 									"^/"	"&#10;"
 								] [replace/all value char code]
-								rejoin [{<c t="inlineStr"><is><t>} value "</t></is></c>"]
+								ajoin [{<c t="inlineStr"><is><t>} value "</t></is></c>"]
 							]
 						]
 					]
 					append blk "</row>"
 				]
 				append blk {</sheetData>}
-				all [filter append blk rejoin [{<autoFilter ref="A1:} to-column-alpha width length? block {"/>}]]
+				all [filter append blk ajoin [{<autoFilter ref="A1:} to-column-alpha width length? block {"/>}]]
 				append blk {</worksheet>}
 				append xml-archive reduce [rejoin [%xl/worksheets/sheet sheet-number %.xml] blk]
 
@@ -1877,7 +2059,7 @@ ctx-munge: context [
 		]
 
 		insert xml-archive reduce [
-			%"[Content_Types].xml" rejoin [
+			%"[Content_Types].xml" ajoin [
 				xml-version
 				{<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
 					<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
@@ -1886,13 +2068,13 @@ ctx-munge: context [
 					xml-content-types
 				{</Types>}
 			]
-			%_rels/.rels rejoin [
+			%_rels/.rels ajoin [
 				xml-version
 				{<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 					<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 				</Relationships>}
 			]
-			%xl/workbook.xml rejoin [
+			%xl/workbook.xml ajoin [
 				xml-version
 				{<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x15" xmlns:x15="http://schemas.microsoft.com/office/spreadsheetml/2010/11/main">
 					<workbookPr defaultThemeVersion="153222"/>
@@ -1901,7 +2083,7 @@ ctx-munge: context [
 					{</sheets>
 				</workbook>}
 			]
-			%xl/_rels/workbook.xml.rels rejoin [
+			%xl/_rels/workbook.xml.rels ajoin [
 				xml-version
 				{<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">}
 					xml-workbook-rels
