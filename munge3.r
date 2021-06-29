@@ -3,7 +3,7 @@ Rebol [
 	Title:		"Munge functions"
 	Owner:		"Ashley G Truter"
 	Version:	3.0.7
-	Date:		15-Feb-2021
+	Date:		18-Jun-2021
 	Purpose:	"Extract and manipulate tabular values in blocks, delimited files and database tables."
 	Licence:	"MIT. Free for both commercial and non-commercial use."
 	Tested: {
@@ -26,6 +26,11 @@ Rebol [
 			deflate
 			as-time for basic time string processing
 			as-date for basic date string processing
+			discard to remove empty columns
+			delta to remove source rows existing in target
+			difference-only
+			intersect-only
+			union-only
 		Updated:
 			Added /flat refinements to load-dsv and sqlcmd
 			Replaced /affected refinement of sqlcmd with /string
@@ -37,6 +42,8 @@ Rebol [
 			Added /limit refinement to check
 			sqlcmd error handling
 			Added /identity refinement to sqlcmd
+			Added /minutes refinement to to-string-time
+			to-string-date now handles Excel dates in decimal format
 		Fixed:
 			sqlcmd now writes statement > 32k to file
 			having block is now copy/deep
@@ -49,6 +56,7 @@ Rebol [
 			flatten was missing copy/deep
 			avg was missing from munge/group help text
 			several failing Red test cases (distinct, to-time, and to-string-time)
+			oledb now detects invalid Excel
 	}
 	Usage: {
 		archive				Compress block of file and data pairs.
@@ -60,9 +68,12 @@ Rebol [
 		crc32				Returns a CRC32 checksum.
 		deduplicate			Remove earliest occurrences of duplicate non-empty key field.
 		delimiter?			Probable delimiter, with priority given to comma, tab, bar, tilde then semi-colon.
+		delta				Remove source rows that exist in target.
 		dezero				Remove leading zeroes from string.
+		difference-only		Returns the difference of two tables.
 		digit				DIGIT is a bitset! value: make bitset! #{000000000000FFC0}
 		digits?				Returns TRUE if data not empty and only contains digits.
+		discard				Remove empty columns.
 		distinct			Remove duplicate and empty rows.
 		enblock				Convert a block of values to a block of row blocks.
 		enzero				Add leading zeroes to a string.
@@ -71,6 +82,7 @@ Rebol [
 		fields?				Column names in a delimited file or string.
 		first-line			Returns the first non-empty line of a file.
 		flatten				Flatten nested block(s).
+		intersect-only		Returns the intersection of two tables.
 		last-line			Returns the last non-empty line of a file.
 		latin1-to-utf8		Latin1 binary to UTF-8 string conversion.
 		letter				LETTER is a bitset! value: make bitset! #{00000000000000007FFFFFE07FFFFFE0}
@@ -101,6 +113,7 @@ Rebol [
 		to-string-date		Convert a string or Rebol date to a YYYY-MM-DD string.
 		to-string-time		Convert a string or Rebol time to a HH:MM:SS string.
 		unarchive			Decompresses archive (only works with compression methods 'store and 'deflate).
+		union-only			Returns the union of two tables.
 		write-dsv			Write block(s) of values to a delimited text file.
 		write-excel			Write block(s) of values to an Excel file.
 	}
@@ -449,19 +462,15 @@ ctx-munge: context [
 	as-time: function [
 		"Convert a string time to an HH:MM string (does not handle Excel or YYYYDDMM)"
 		time [string!]
-	] compose/deep [
+	] [
 		either attempt [
-			(either settings/build = 'red [[
-				hhmm: to time! trim/with copy time "APM "
-				all [
-					find time "PM"
-					hhmm/1 < 13
-					hhmm/1: hhmm/1 + 12
-				]
-				hhmm
-			]] [[
-				hhmm: to time! trim/all copy time
-			]])
+			hhmm: to time! trim/with copy time "APM "
+			all [
+				find time "PM"
+				hhmm/1 < 12
+				hhmm/1: hhmm/1 + 12
+			]
+			hhmm
 		] [
 			ajoin [next form 100 + hhmm/hour ":" next form 100 + hhmm/minute]
 		] [
@@ -522,7 +531,7 @@ ctx-munge: context [
 			any [
 				binary? data
 				data: unarchive/only data rejoin [%xl/worksheets/sheet any [number 1] %.xml]
-				settings/error reform [number "not a valid sheet number"]
+				settings/error reform [number "is not a valid sheet number"]
 			]
 			dim: cols: 0
 			all [
@@ -645,12 +654,48 @@ ctx-munge: context [
 		pick [#"," #"^-" #"|" #"~" #";"] index? find counts max-of counts
 	]
 
+	delta: function [
+		"Remove source rows that exist in target"
+		source [block!]
+		target [block!]
+	] [
+		all [settings/console settings/called 'delta]
+		remove-each row source [
+			find/only target row
+		]
+		all [settings/console settings/exited]
+		source
+	]
+
 	dezero: function [
 		"Remove leading zeroes from string"
 		string [string!]
 	] [
 		while [string/1 = #"0"] [remove string]
 		string
+	]
+
+	difference-only: function [
+		"Returns the difference of two tables"
+		table1 [block!]
+		table2 [block!]
+	] [
+		table1: distinct copy table1
+		table2: distinct copy table2
+		blk: copy []
+		foreach row table1 [
+			any [
+				find/only table2 row
+				append/only blk row
+			]
+		]
+		foreach row table2 [
+			any [
+				find/only table1 row
+				append/only blk row
+			]
+		]
+		blk
 	]
 
 	digit: charset [#"0" - #"9"]
@@ -660,6 +705,39 @@ ctx-munge: context [
 		data [string! binary!]
 	] compose/deep [
 		all [not empty? data not find data (complement digit)]
+	]
+
+	discard: function [
+		"Remove empty columns"
+		data [block!]
+		/verbose
+	] [
+		all [settings/console settings/called 'discard]
+		unless empty? data [
+			unused: copy []
+			repeat col length? first data [
+				discard?: true
+				foreach row next data [
+					unless empty? row/:col [
+						discard?: false
+						break
+					]
+				]
+				all [
+					discard?
+					insert unused col
+					verbose
+					print ["Discard" data/1/:col]
+				]
+			]
+			foreach row data [
+				foreach col unused [
+					remove at row col
+				]
+			]
+		]
+		all [settings/console settings/exited]
+		data
 	]
 
 	distinct: function [
@@ -784,6 +862,21 @@ ctx-munge: context [
 		]
 		all [settings/console settings/exited]
 		result
+	]
+
+	intersect-only: function [
+		"Returns the intersection of two tables"
+		table1 [block!]
+		table2 [block!]
+	] [
+		blk: copy []
+		foreach row distinct copy table1 [
+			all [
+				find/only table2 row
+				append/only blk row
+			]
+		]
+		blk
 	]
 
 	last-line: function [
@@ -1071,12 +1164,12 @@ ctx-munge: context [
 
 		any [
 			excel? file
-			settings/error reform [file "not a valid Excel file"]
+			settings/error reform [file "is not a valid Excel file"]
 		]
 
 		any [
 			sheet: unarchive/only file rejoin [%xl/worksheets/sheet number: any [number 1] %.xml]
-			settings/error reform [number "not a valid sheet number"]
+			settings/error reform [number "is not a valid sheet number"]
 		]
 
 		strings: make block! 65536
@@ -1436,7 +1529,7 @@ ctx-munge: context [
 			"Execute an OLEDB statement"
 			file [file! url!]
 			statement [string!] "SQL statement in the form (Excel) 'SELECT F1 FROM SHEET1' or (Access) 'SELECT Column FROM Table'"
-			/local sheet
+			/local sheet blk
 		] compose/deep [
 			all [settings/console settings/called/file 'oledb file]
 			statement: replace/all copy statement {'} {''}
@@ -1445,7 +1538,7 @@ ctx-munge: context [
 				replace statement reform ["FROM" sheet] ajoin ["FROM ['+$o.GetSchema('Tables').rows[" -1 + to integer! skip sheet 5 "].TABLE_NAME+']"]
 				{;Extended Properties=''Excel 12.0 Xml;HDR=NO;IMEX=1;Mode=Read''}
 			]
-			also remove load-dsv/csv/with call-out ajoin [
+			blk: remove load-dsv/csv/with call-out ajoin [
 				(either settings/target = 64 ["powershell "] ["C:\Windows\SysNative\WindowsPowerShell\v1.0\powershell.exe "])
 				{-nologo -noprofile -command "}
 					{$o=New-Object System.Data.OleDb.OleDbConnection('Provider=Microsoft.ACE.OLEDB.12.0;}
@@ -1457,7 +1550,15 @@ ctx-munge: context [
 					{$o.Close();}
 					{$t|ConvertTo-CSV -Delimiter `t -NoTypeInformation}
 				{"}
-			] tab all [settings/console settings/exited]
+			] tab
+			also either all [
+				1 = length? blk
+				[""] = unique first blk
+			] [
+				settings/error reform [file "is not a valid Excel file"]
+			] [
+				blk
+			] all [settings/console settings/exited]
 		]
 	]
 
@@ -1556,7 +1657,7 @@ ctx-munge: context [
 			any [
 				binary? data
 				data: unarchive/only data rejoin [%xl/worksheets/sheet any [number 1] %.xml]
-				settings/error reform [number "not a valid sheet number"]
+				settings/error reform [number "is not a valid sheet number"]
 			]
 			all [
 				find data #{3C726F77}
@@ -1759,7 +1860,10 @@ ctx-munge: context [
 			string: date
 			any [
 				attempt [
-					either all [digits? date 6 > length? date] [ ; Excel
+					either any [ ; Excel
+						all [digits? date 6 > length? date]
+						all [find date "." attempt [to decimal! date] date: first parse date "."]
+					] [
 						date: 30-Dec-1899 + to integer! date
 						all [
 							mdy
@@ -1800,7 +1904,8 @@ ctx-munge: context [
 		"Convert a string or Rebol time to a HH:MM:SS string"
 		time [string! date! time!]
 		/precise "HH:MM:SS.mmm"
-	] compose/deep [
+		/minutes "HH:MM"
+	] [
 		unless time? time [
 			string: time
 			any [
@@ -1814,28 +1919,31 @@ ctx-munge: context [
 							to time! ajoin [copy/part time 2 ":" copy/part skip time 2 2 ":" copy/part skip time 4 2]
 						]
 						true [
-							(either settings/build = 'red [[
-								hhmm: to time! trim/with copy time "APM "
-								all [
-									find time "PM"
-									hhmm/1 < 13
-									hhmm/1: hhmm/1 + 12
-								]
-								hhmm
-							]] [[
-								to time! trim/all copy time
-							]])
+							hhmm: to time! trim/with copy time "APM "
+							all [
+								find time "PM"
+								hhmm/1 < 12
+								hhmm/1: hhmm/1 + 12
+							]
+							hhmm
 						]
 					]
 				]
 				settings/error reform [string "is not a valid time"]
 			]
 		]
-		ajoin [
-			next form 100 + time/hour ":"
-			next form 100 + time/minute ":"
-			next form 100 + to integer! time/second
-			either precise [copy/part find form time/second + .0001 "." 4] [""]
+		either minutes [
+			ajoin [
+				next form 100 + time/hour ":"
+				next form 100 + time/minute
+			]
+		] [
+			ajoin [
+				next form 100 + time/hour ":"
+				next form 100 + time/minute ":"
+				next form 100 + to integer! time/second
+				either precise [copy/part find form time/second + .0001 "." 4] [""]
+			]
 		]
 	]
 
@@ -1983,6 +2091,14 @@ ctx-munge: context [
 		all [settings/console settings/exited]
 
 		source
+	]
+
+	union-only: function [
+		"Returns the union of two tables"
+		table1 [block!]
+		table2 [block!]
+	] [
+		distinct append copy table1 table2
 	]
 
 	write-dsv: function [
