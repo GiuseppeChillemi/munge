@@ -3,7 +3,7 @@ Rebol [
 	Title:		"Munge functions"
 	Owner:		"Ashley G Truter"
 	Version:	3.0.7
-	Date:		3-Mar-2020
+	Date:		15-Feb-2021
 	Purpose:	"Extract and manipulate tabular values in blocks, delimited files and database tables."
 	Licence:	"MIT. Free for both commercial and non-commercial use."
 	Tested: {
@@ -36,6 +36,7 @@ Rebol [
 			to-string-date now auto-detects /day
 			Added /limit refinement to check
 			sqlcmd error handling
+			Added /identity refinement to sqlcmd
 		Fixed:
 			sqlcmd now writes statement > 32k to file
 			having block is now copy/deep
@@ -43,6 +44,11 @@ Rebol [
 			missing settings/exited in munge
 			missing copy in load-xml (strings inadvertently shared)
 			adding missing 'flatten console message
+			to-string-time Excel bug
+			load-xml checks if file is Excel
+			flatten was missing copy/deep
+			avg was missing from munge/group help text
+			several failing Red test cases (distinct, to-time, and to-string-time)
 	}
 	Usage: {
 		archive				Compress block of file and data pairs.
@@ -103,6 +109,7 @@ Rebol [
 case [
 	;	*** Red ***
 	not rebol [
+
 		foreach word [ajoin decimal! deline invalid-utf? reform to-rebol-file] [
 			all [value? word print [word "already defined!"]]
 		]
@@ -143,9 +150,6 @@ case [
 	]
 	;	*** R3 ***
 	system/product = 'atronix-view [
-		;foreach word [average put sum] [
-		;	all [value? word print [word "already defined!"]]
-		;]
 
 		average: function [
 			"Returns the average of all values in a block"
@@ -176,6 +180,7 @@ case [
 	]
 	;	*** R2 ***
 	2 = system/version/1 [
+
 		all [system/version/4 = 3 call/show ""]
 
 		function:	:funct
@@ -243,7 +248,7 @@ ctx-munge: context [
 		build: switch system/version/1 [0 ['red] 2 ['r2] 3 ['r3]]
 
 		os: switch build [
-			r2	[any [pick [none macOS Windows] system/version/4 'Linux]]
+			r2	[any [pick [#[none] macOS Windows] system/version/4 'Linux]]
 			r3	[system/platform/1]
 			red	[system/platform]
 		]
@@ -447,13 +452,13 @@ ctx-munge: context [
 	] compose/deep [
 		either attempt [
 			(either settings/build = 'red [[
-				either find time "PM" [
-					hhmm: to time! time
-					all [hhmm/1 < 13 hhmm/1: hhmm/1 + 12]
-					hhmm
-				] [
-					hhmm: to time! time
+				hhmm: to time! trim/with copy time "APM "
+				all [
+					find time "PM"
+					hhmm/1 < 13
+					hhmm/1: hhmm/1 + 12
 				]
+				hhmm
 			]] [[
 				hhmm: to time! trim/all copy time
 			]])
@@ -774,7 +779,7 @@ ctx-munge: context [
 	] [
 		all [settings/console settings/called 'flatten]
 		result: copy []
-		foreach row data [
+		foreach row copy/deep data [
 			append result row
 		]
 		all [settings/console settings/exited]
@@ -1065,6 +1070,11 @@ ctx-munge: context [
 		all [settings/console settings/called 'load-xml]
 
 		any [
+			excel? file
+			settings/error reform [file "not a valid Excel file"]
+		]
+
+		any [
 			sheet: unarchive/only file rejoin [%xl/worksheets/sheet number: any [number 1] %.xml]
 			settings/error reform [number "not a valid sheet number"]
 		]
@@ -1242,7 +1252,7 @@ ctx-munge: context [
 			columns [block! integer! word! none!]
 		/where "Expression that can reference columns as row/1, row/2, etc"
 			condition
-		/group "One of count, max, min or sum"
+		/group "One of avg, count, max, min or sum"
 			having [word! block!] "Word or expression that can reference the initial result set column as count, max, etc"
 		/spec "Return columns and condition with field substitutions"
 	] [
@@ -1601,8 +1611,11 @@ ctx-munge: context [
 			/headings "Keep column headings"
 			/string "Return string instead of block"
 			/flat "Flatten rows"
+			/identity
 		] [
 			all [settings/console settings/called 'sqlcmd]
+
+			all [identity statement: rejoin [statement ";SELECT SCOPE_IDENTITY()"]]
 
 			stdout: either 32000 > length? statement [
 				call-out reform compose ["sqlcmd -m 1 -X -S" server "-d" database "-I -Q" ajoin [{"} statement {"}] {-W -w 65535 -s"^-"} (either headings [] [{-h -1}])]
@@ -1617,6 +1630,9 @@ ctx-munge: context [
 				string [
 					all [settings/console settings/exited]
 					stdout
+				]
+				identity [
+					parse stdout [thru ")^/" copy id to "^/" (return to integer! id)]
 				]
 				stdout/1 = #"^/" [
 					all [settings/console settings/exited]
@@ -1790,17 +1806,22 @@ ctx-munge: context [
 			any [
 				attempt [
 					time: case [
-						date? time				[time/time]
-						;	don't match "00:00:00.000"
-						find/part time "." 2	[24:00:00 * to decimal! time]	; Excel
-						digits? time			[to time! ajoin [copy/part time 2 ":" copy/part skip time 2 2 ":" copy/part skip time 4 2]]
+						date? time [time/time]
+						all [not find time ":" find time "."] [	; Excel - don't match "00:00:00.000"
+							24:00:00 * to decimal! find time "."
+						]
+						digits? time [
+							to time! ajoin [copy/part time 2 ":" copy/part skip time 2 2 ":" copy/part skip time 4 2]
+						]
 						true [
 							(either settings/build = 'red [[
-								either find time "PM" [
-									time: to time! time
-									all [time/1 < 13 time/1: time/1 + 12]
-									time
-								] [to time! time]
+								hhmm: to time! trim/with copy time "APM "
+								all [
+									find time "PM"
+									hhmm/1 < 13
+									hhmm/1: hhmm/1 + 12
+								]
+								hhmm
 							]] [[
 								to time! trim/all copy time
 							]])
