@@ -1,62 +1,19 @@
-; Red [] ; commented as 'red is undefined in REBOL/Core
+; Red [] ; commented as 'red is undefined in Rebol3/Base
 Rebol [
 	Title:		"Munge functions"
 	Owner:		"Ashley G Truter"
-	Version:	3.0.7
-	Date:		18-Jun-2021
-	Purpose:	"Extract and manipulate tabular values in blocks, delimited files and database tables."
+	Version:	3.1.0
+	Date:		27-Sep-2022
+	Purpose:	"Extract and manipulate tabular values in blocks, delimited files, and database tables."
 	Licence:	"MIT. Free for both commercial and non-commercial use."
 	Tested: {
-		Windows
-			REBOL/View		2.7.8						rebol.com
-			R3/64-bit		3.0.99						atronixengineering.com/downloads
-			RED/32-bit		red-31dec19-6cd70382.exe	red-lang.org
-		macOS
-			REBOL/View		2.7.8						rebol.com
-			RED/32-bit		0.6.4						red-lang.org
-	}
-	Changes: {
-		Removed:
-			join (for Red)
-			/day refinement from to-string-date
-		Added:
-			last-line
-			to-field-spec
-			deduplicate
-			deflate
-			as-time for basic time string processing
-			as-date for basic date string processing
-			discard to remove empty columns
-			delta to remove source rows existing in target
-			difference-only
-			intersect-only
-			union-only
-		Updated:
-			Added /flat refinements to load-dsv and sqlcmd
-			Replaced /affected refinement of sqlcmd with /string
-			Added unarchive support for Red
-			Added limited archive support for Red
-			cause-error logic simplified
-			replaced to-datatype with to datatype!
-			to-string-date now auto-detects /day
-			Added /limit refinement to check
-			sqlcmd error handling
-			Added /identity refinement to sqlcmd
-			Added /minutes refinement to to-string-time
-			to-string-date now handles Excel dates in decimal format
-		Fixed:
-			sqlcmd now writes statement > 32k to file
-			having block is now copy/deep
-			first-line
-			missing settings/exited in munge
-			missing copy in load-xml (strings inadvertently shared)
-			adding missing 'flatten console message
-			to-string-time Excel bug
-			load-xml checks if file is Excel
-			flatten was missing copy/deep
-			avg was missing from munge/group help text
-			several failing Red test cases (distinct, to-time, and to-string-time)
-			oledb now detects invalid Excel
+		Windows x86
+			CLI Red			26-Sep-2022		red-lang.org
+		Windows x64
+			Rebol3/Base		3.10.0			github.com/Oldes/Rebol3
+			REBOL3/View		3.0.99			atronixengineering.com
+		macOS x64
+			Rebol3/Base		3.10.0			github.com/Oldes/Rebol3
 	}
 	Usage: {
 		archive				Compress block of file and data pairs.
@@ -65,9 +22,8 @@ Rebol [
 		call-out			Call OS command returning STDOUT.
 		check				Verify data structure.
 		cols?				Number of columns in a delimited file or string.
-		crc32				Returns a CRC32 checksum.
 		deduplicate			Remove earliest occurrences of duplicate non-empty key field.
-		delimiter?			Probable delimiter, with priority given to comma, tab, bar, tilde then semi-colon.
+		delimiter?			Probable delimiter, with priority given to comma, tab, bar, tilde, then semi-colon.
 		delta				Remove source rows that exist in target.
 		dezero				Remove leading zeroes from string.
 		difference-only		Returns the difference of two tables.
@@ -89,6 +45,7 @@ Rebol [
 		letters?			Returns TRUE if data only contains letters.
 		like				Finds a value in a series, expanding * (any characters) and ? (any one character), and returns TRUE if found.
 		list				Uses settings to optionally trim strings and set the new-line marker.
+		load-basic			Parses basic delimiter-separated values into row blocks.
 		load-dsv			Parses delimiter-separated values into row blocks.
 		load-fixed			Loads fixed-width values from a file.
 		load-xml			Loads an Office XML sheet.
@@ -98,8 +55,6 @@ Rebol [
 		mixedcase			Converts string of characters to mixedcase.
 		munge				Load and/or manipulate a block of tabular (column and row) values.
 		oledb				Execute an OLEDB statement.
-		parse-series		Parses a series according to grammar rules.
-		read-binary			Read bytes from a file.
 		read-string			Read string from a text file.
 		replace-deep		Replaces all occurences of search values with new values in a block or nested block.
 		rows?				Number of rows in a delimited file or string.
@@ -134,7 +89,7 @@ case [
 			make string! reduce block
 		]
 
-		decimal!: :float!
+		decimal!: float!
 
 		deline: function [
 			string [any-string!]
@@ -157,6 +112,16 @@ case [
 			value "Value to reduce and form"
 		] [
 			form reduce value
+		]
+
+		to-month-number: function [
+			"Convert month name to number"
+			month [string!]
+		] [
+			index? any [
+				find ["Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"] month
+				find system/locale/months month
+			]
 		]
 
 		to-rebol-file: :to-red-file
@@ -191,13 +156,8 @@ case [
 			result
 		]
 	]
-	;	*** R2 ***
-	2 = system/version/1 [
-
-		all [system/version/4 = 3 call/show ""]
-
-		function:	:funct
-		map!:		:block!
+	;	*** Oldes R3 ***
+	3 = system/version/1 [
 
 		average: function [
 			"Returns the average of all values in a block"
@@ -205,39 +165,6 @@ case [
 		] [
 			all [empty? block return none]
 			divide sum block length? block
-		]
-
-		put: function [
-			"Replaces the value following a key, and returns the map"
-			map [block! hash!]
-			key
-			value
-		] [
-			either hash? map [
-				append map key
-			] [
-				remove/part find/skip map key 2 2
-				append map reduce [key value]
-			]
-			value
-		]
-
-		select-map: function [
-			series [map!]
-			value
-		] [
-			first any [select/skip series value 2 [#[none]]]
-		]
-
-		split: function [
-			"Parses delimiter-separated values into a block"
-			string [series!]
-			delimiter [char!]
-		] [
-			all [empty? string return make block! 0]
-			blk: parse/all string form delimiter
-			all [delimiter = last string append blk copy ""]
-			blk
 		]
 
 		sum: function [
@@ -250,7 +177,8 @@ case [
 		]
 	]
 	true [
-		settings/error "Unsupported Rebol version or derivative"
+		print "Unsupported Rebol version or derivative"
+		quit
 	]
 ]
 
@@ -258,19 +186,24 @@ ctx-munge: context [
 
 	settings: context [
 
-		build: switch system/version/1 [0 ['red] 2 ['r2] 3 ['r3]]
+		version: system/script/header/version
 
-		os: switch build [
-			r2	[any [pick [#[none] macOS Windows] system/version/4 'Linux]]
-			r3	[system/platform/1]
-			red	[system/platform]
+		build: case [
+			not rebol						['red]
+			system/product = 'atronix-view	['r3a]
+			true							['r3]
 		]
 
-		target: switch build [
-			r2	[32]
-			r3	[either find last split-path system/options/boot %64	[64] [32]]
-			red	[either find form system/build/config/target "64"		[64] [32]]
-		]
+		;	Features
+
+		windows?:	"a\b" = to-local-file %a/b
+		x64?:		integer? 9223372036854775807
+		zip?:		attempt [codecs/zip system/options/log/zip: 0 true]
+
+		;	Compatability
+
+		read-binary:		either build = 'red [[read/binary]] [[read]]
+		read-binary-part:	either build = 'red [[read/binary/part]] [[read/part]]
 
 		stack: copy []
 
@@ -284,7 +217,7 @@ ctx-munge: context [
 				file
 				not binary! path
 				not exists? path
-				error reform ["cannot open" path]
+				error reform ["Cannot open" path]
 			]
 			any [trace exit]
 			either word? name [
@@ -300,6 +233,7 @@ ctx-munge: context [
 				insert/dup message: reform ["Exit" last stack] "  " -1 + length? stack
 				take/last stack
 			]
+
 			print [next next next to-string-time/precise difference now/precise start-time head insert/dup s: form to integer! stats - start-used / 1048576 " " 4 - length? s message]
 		]
 
@@ -314,38 +248,34 @@ ctx-munge: context [
 			cause-error 'user 'message message
 		]
 
-		as-is: console: trace: true
+		as-is: console: denull: trace: true
+
+		field-scan: false
 	]
 
-	archive: function [ ; https://en.wikipedia.org/wiki/Zip_(file_format) & http://www.rebol.org/view-script.r?script=rebzip.r
+	archive: function [
 		"Compress block of file and data pairs"
 		source [series!]
 	] compose/deep [
-		to-short: function [i] [(
-			either settings/build = 'r2 [[
-				reverse at load make string! reduce ["#{" to-hex i "}"] 3
-			]] [[
-				copy/part reverse to binary! i 2
-			]]
-		)]
+		;	https://en.wikipedia.org/wiki/Zip_(file_format) & http://www.rebol.org/view-script.r?script=rebzip.r
 
-		to-long: function [i] [(
-			either settings/build = 'r2 [[
-				reverse load make string! reduce ["#{" to-hex i "}"]
-			]] [[
-				copy/part reverse to binary! i 4
-			]]
-		)]
+		to-short: function [i] [copy/part reverse to binary! i 2]
+		to-long: function [i] [copy/part reverse to binary! i 4]
 
 		case [
 			empty? source [none]
-			not block? source [(
-				switch settings/build [
-					r2	[[join #{1F8B0800000000000404} at head change skip tail compress source -8 to-long crc32 source 3]]
-					r3	[[join #{1F8B0800000000000404} at head reverse/part skip tail compress/gzip source -8 4 3]]
-					red	[[compress source]]
+			not block? source [(either settings/build = 'r3a [[join #{1F8B080000000000000A} at head reverse/part skip tail compress/gzip source -8 4 3]] [[compress source 'gzip]])]
+			settings/zip? [
+				all [settings/console settings/called 'zip-codec]
+				blk: make block! 32
+				foreach [file series] source [
+					all [none? series series: make string! 0]
+					any [file? file settings/error reform ["Found" type? file "where file! expected"]]
+					any [series? series settings/error reform ["Found" type? series "where series! expected"]]
+					append blk reduce [file to binary! series]
 				]
-			)]
+				also codecs/zip/encode blk all [settings/console settings/exited]
+			]
 			true [
 				bin: copy #{}
 				dir: copy #{}
@@ -353,10 +283,10 @@ ctx-munge: context [
 				foreach [file series] source [
 					all [none? series series: make string! 0]
 
-					any [file? file settings/error reform ["found" type? file "where file! expected"]]
-					any [series? series settings/error reform ["found" type? series "where series! expected"]]
+					any [file? file settings/error reform ["Found" type? file "where file! expected"]]
+					any [series? series settings/error reform ["Found" type? series "where series! expected"]]
 
-					compressed-data: compress data: to binary! series
+					compressed-data: compress data: to binary! series (either settings/build = 'r3a [] [['zlib]])
 
 					(either settings/build = 'red [[
 						remove/part compressed-data 10
@@ -365,7 +295,13 @@ ctx-munge: context [
 					]] [])
 
 					method: either greater? length? series length? compressed-data [
-						compressed-data: (either settings/build = 'red [[compress/deflate data]] [[copy/part at compressed-data 3 skip tail compressed-data -8]])
+						compressed-data: (
+							switch settings/build [
+								r3	[[copy/part at compressed-data 3 skip tail compressed-data -4]]
+								r3a	[[copy/part at compressed-data 3 skip tail compressed-data -8]]
+								red	[[compress data 'deflate]]
+							]
+						)
 						#{0800}				; deflate
 					] [
 						compressed-data: data
@@ -381,7 +317,7 @@ ctx-munge: context [
 						method				; Compression method
 						#{0000}				; File last modification time
 						#{0000}				; File last modification date
-						crc:				to-long crc32 data
+						crc:				to-long (either settings/build = 'r3a [[checksum/method to binary!]] [[checksum]]) data 'CRC32
 						compressed-size:	to-long length? compressed-data
 						uncompressed-size:	to-long length? data
 						filename-length:	to-short length? file
@@ -440,19 +376,21 @@ ctx-munge: context [
 	] compose/deep [
 		any [
 			attempt [
+				date: split string make bitset! "/- "
 				(either settings/build = 'red [[
-					date: split string make bitset! "/- "
 					date: to date! either mdy [
-						reduce [to integer! date/2 to integer! date/1 to integer! date/3]
+						reduce [to integer! date/2 either digits? date/1 [to integer! date/1] [to-month-number date/1] to integer! date/3]
 					] [
-						reduce [to integer! date/1 to integer! date/2 to integer! date/3]
+						reduce [to integer! date/1 either digits? date/2 [to integer! date/2] [to-month-number date/2] to integer! date/3]
 					]
 				]] [[
 					date: to date! either mdy [
-						date: parse string "/- "
 						ajoin [date/2 "/" date/1 "/" date/3]
-					] [first parse string " "]
+					] [
+						ajoin [date/1 "/" date/2 "/" date/3]
+					]
 				]])
+				all [date/year < 100 date/year: date/year + 2000]
 				ajoin [date/year "-" next form 100 + date/month "-" next form 100 + date/day]
 			]
 			settings/error reform [string "is not a valid date"]
@@ -463,16 +401,14 @@ ctx-munge: context [
 		"Convert a string time to an HH:MM string (does not handle Excel or YYYYDDMM)"
 		time [string!]
 	] [
-		either attempt [
-			hhmm: to time! trim/with copy time "APM "
+		either attempt [hhmm: to time! trim/with copy time "APM "] [
 			all [
 				find time "PM"
 				hhmm/1 < 12
 				hhmm/1: hhmm/1 + 12
 			]
-			hhmm
-		] [
-			ajoin [next form 100 + hhmm/hour ":" next form 100 + hhmm/minute]
+			all [#":" = second hhmm: form hhmm insert hhmm #"0"]
+			copy/part hhmm 5
 		] [
 			settings/error reform [time "is not a valid time"]
 		]
@@ -483,9 +419,9 @@ ctx-munge: context [
 		cmd [string!]
 	] compose [
 		all [settings/console settings/called 'call-out]
-		call/wait/output/error cmd stdout: make (either settings/build = 'r2 [string!] [binary!]) 65536 stderr: make string! 1024
+		(either settings/windows? [[call/wait/output/error]] [[call/wait/shell/output/error]]) cmd stdout: make string! 65536 stderr: make string! 1024
 		any [empty? stderr settings/error trim/lines stderr]
-		also read-string (either settings/build = 'r2 [[as-binary]] []) stdout all [settings/console settings/exited]
+		also deline stdout all [settings/console settings/exited]
 	]
 
 	check: function [
@@ -552,54 +488,6 @@ ctx-munge: context [
 		] all [settings/console settings/exited]
 	]
 
-	crc32: function [ ; http://www.rebol.org/view-script.r?script=crc32.r
-		"Returns a CRC32 checksum"
-		data [binary! string!]
-	] switch settings/build [
-		r2 [[
-			crc: -1
-			foreach char data [
-				crc: (shift/logical crc 8) xor pick [
-					0 1996959894 -301047508 -1727442502 124634137 1886057615 -379345611 -1637575261
-					249268274 2044508324 -522852066 -1747789432 162941995 2125561021 -407360249 -1866523247
-					498536548 1789927666 -205950648 -2067906082 450548861 1843258603 -187386543 -2083289657
-					325883990 1684777152 -43845254 -1973040660 335633487 1661365465 -99664541 -1928851979
-					997073096 1281953886 -715111964 -1570279054 1006888145 1258607687 -770865667 -1526024853
-					901097722 1119000684 -608450090 -1396901568 853044451 1172266101 -589951537 -1412350631
-					651767980 1373503546 -925412992 -1076862698 565507253 1454621731 -809855591 -1195530993
-					671266974 1594198024 -972236366 -1324619484 795835527 1483230225 -1050600021 -1234817731
-					1994146192 31158534 -1731059524 -271249366 1907459465 112637215 -1614814043 -390540237
-					2013776290 251722036 -1777751922 -519137256 2137656763 141376813 -1855689577 -429695999
-					1802195444 476864866 -2056965928 -228458418 1812370925 453092731 -2113342271 -183516073
-					1706088902 314042704 -1950435094 -54949764 1658658271 366619977 -1932296973 -69972891
-					1303535960 984961486 -1547960204 -725929758 1256170817 1037604311 -1529756563 -740887301
-					1131014506 879679996 -1385723834 -631195440 1141124467 855842277 -1442165665 -586318647
-					1342533948 654459306 -1106571248 -921952122 1466479909 544179635 -1184443383 -832445281
-					1591671054 702138776 -1328506846 -942167884 1504918807 783551873 -1212326853 -1061524307
-					-306674912 -1698712650 62317068 1957810842 -355121351 -1647151185 81470997 1943803523
-					-480048366 -1805370492 225274430 2053790376 -468791541 -1828061283 167816743 2097651377
-					-267414716 -2029476910 503444072 1762050814 -144550051 -2140837941 426522225 1852507879
-					-19653770 -1982649376 282753626 1742555852 -105259153 -1900089351 397917763 1622183637
-					-690576408 -1580100738 953729732 1340076626 -776247311 -1497606297 1068828381 1219638859
-					-670225446 -1358292148 906185462 1090812512 -547295293 -1469587627 829329135 1181335161
-					-882789492 -1134132454 628085408 1382605366 -871598187 -1156888829 570562233 1426400815
-					-977650754 -1296233688 733239954 1555261956 -1026031705 -1244606671 752459403 1541320221
-					-1687895376 -328994266 1969922972 40735498 -1677130071 -351390145 1913087877 83908371
-					-1782625662 -491226604 2075208622 213261112 -1831694693 -438977011 2094854071 198958881
-					-2032938284 -237706686 1759359992 534414190 -2118248755 -155638181 1873836001 414664567
-					-2012718362 -15766928 1711684554 285281116 -1889165569 -127750551 1634467795 376229701
-					-1609899400 -686959890 1308918612 956543938 -1486412191 -799009033 1231636301 1047427035
-					-1362007478 -640263460 1088359270 936918000 -1447252397 -558129467 1202900863 817233897
-					-1111625188 -893730166 1404277552 615818150 -1160759803 -841546093 1423857449 601450431
-					-1285129682 -1000256840 1567103746 711928724 -1274298825 -1022587231 1510334235 755167117
-				] crc and 255 xor char + 1
-			]
-			-1 xor crc
-		]]
-		r3	[[checksum/method to binary! data 'CRC32]]
-		red	[[checksum data 'CRC32]]
-	]
-
 	deduplicate: function [
 		"Remove earliest occurrences of duplicate non-empty key field"
 		blk [block!]
@@ -637,21 +525,17 @@ ctx-munge: context [
 	]
 
 	delimiter?: function [
-		"Probable delimiter, with priority given to comma, tab, bar, tilde then semi-colon"
+		"Probable delimiter, with priority given to comma, tab, bar, tilde, then semi-colon"
 		data [file! url! string!]
 	] [
-		data: first-line data
-		counts: copy [0 0 0 0 0]
-		foreach char data [
-			switch char [
-				#","	[counts/1: counts/1 + 1]
-				#"^-"	[counts/2: counts/2 + 1]
-				#"|"	[counts/3: counts/3 + 1]
-				#"~"	[counts/4: counts/4 + 1]
-				#";"	[counts/5: counts/5 + 1]
-			]
-		]
-		pick [#"," #"^-" #"|" #"~" #";"] index? find counts max-of counts
+		data: copy first-line data
+		last sort/skip reduce [
+			subtract length? data length? trim/with data #";" #";"
+			subtract length? data length? trim/with data #"~" #"~"
+			subtract length? data length? trim/with data #"|" #"|"
+			subtract length? data length? trim/with data tab tab
+			subtract length? data length? trim/with data #"," #","
+		] 2
 	]
 
 	delta: function [
@@ -663,8 +547,7 @@ ctx-munge: context [
 		remove-each row source [
 			find/only target row
 		]
-		all [settings/console settings/exited]
-		source
+		also source all [settings/console settings/exited]
 	]
 
 	dezero: function [
@@ -680,21 +563,43 @@ ctx-munge: context [
 		table1 [block!]
 		table2 [block!]
 	] [
-		table1: distinct copy table1
-		table2: distinct copy table2
+		all [
+			not empty? table1
+			not empty? table2
+			(length? table1/1) <> length? table2/1
+			settings/error "Column count mismatch"
+		]
+
 		blk: copy []
+
+		map1: make map! length? table1: distinct copy table1
+
+		foreach row table1 [
+			put map1 form row 0
+		]
+
+		map2: make map! length? table2: distinct copy table2
+
+		foreach row table2 [
+			put map2 form row 0
+		]
+
+		blk: copy []
+
 		foreach row table1 [
 			any [
-				find/only table2 row
+				select map2 form row
 				append/only blk row
 			]
 		]
+
 		foreach row table2 [
 			any [
-				find/only table1 row
+				select map1 form row
 				append/only blk row
 			]
 		]
+
 		blk
 	]
 
@@ -736,8 +641,7 @@ ctx-munge: context [
 				]
 			]
 		]
-		all [settings/console settings/exited]
-		data
+		also data all [settings/console settings/exited]
 	]
 
 	distinct: function [
@@ -755,8 +659,7 @@ ctx-munge: context [
 				either row = old-row [true] [old-row: row false]
 			]
 		]
-		all [settings/console settings/exited]
-		data
+		also data all [settings/console settings/exited]
 	]
 
 	enblock: function [
@@ -765,11 +668,14 @@ ctx-munge: context [
 		cols [integer!]
 	] [
 		all [block? data/1 return data]
+		all [settings/console settings/called 'enblock]
 		any [integer? rows: divide length? data cols settings/error "Cols not a multiple of length"]
-		repeat i rows [
-			change/part/only at data i copy/part at data i cols cols
+		blk: copy data
+		clear data
+		loop rows compose [
+			append/only data take/part/last blk (cols)
 		]
-		data
+		also reverse data all [settings/console settings/exited]
 	]
 
 	enzero: function [
@@ -784,7 +690,7 @@ ctx-munge: context [
 	excel?: function [
 		"Returns TRUE if file is Excel or worksheet is XML"
 		data [file! url! binary! string!]
-	] [
+	] compose/deep [
 		switch/default type?/word data [
 			string!		[false]
 			binary!		[not not find copy/part data 8 #{3C3F786D6C}]	; ignore UTF mark
@@ -792,7 +698,7 @@ ctx-munge: context [
 			all [
 				suffix? data
 				%.xls = copy/part suffix? data 4
-				#{504B} = read-binary/part data 2	; PK
+				#{504B} = (settings/read-binary-part) data 2	; PK
 			]
 		]
 	]
@@ -820,15 +726,16 @@ ctx-munge: context [
 			load-xml/sheet/fields data any [number 1]
 		] [
 			data: first-line data
+			delimiter: any [delimiter delimiter? data]
 			case [
 				empty? data [
 					make block! 0
 				]
 				#"^"" = first data [
-					load-dsv/flat/ignore/with/csv data any [delimiter delimiter? data]
+					load-dsv/flat/ignore/with/csv data delimiter
 				]
 				true [
-					load-dsv/flat/ignore/with data any [delimiter delimiter? data]
+					load-dsv/flat/ignore/with data delimiter
 				]
 			]
 		] all [settings/console settings/exited]
@@ -836,32 +743,47 @@ ctx-munge: context [
 
 	first-line: function [
 		"Returns the first non-empty line of a file"
-		data [file! url! string!]
-	] [
+		data [file! url! string! binary!]
+		/local cols len row
+	] compose/deep [
 		data: deline/lines either string? data [
 			copy/part data 4096
 		] [
-			latin1-to-utf8 read-binary/part data 4096
+			latin1-to-utf8 either binary? data [copy/part data 4096] [(settings/read-binary-part) data 4096]
 		]
 
-		foreach line data [
-			any [find ["" "^L"] line return line]
+		either settings/field-scan [
+			remove-each line data [find ["" "^L"] trim line]
+			cols: 0
+			row: copy ""
+			foreach line copy/part data 10 [
+				all [
+					cols < len: length? unique load-dsv/flat/ignore/with line either find line tab [tab] [#","]
+					cols: len
+					row: line
+				]
+			]
+			return row
+		] [
+			foreach line data [
+				any [find ["" "^L"] line return line]
+			]
 		]
 
 		copy ""
 	]
 
-	flatten: function [ ; http://www.rebol.org/view-script.r?script=flatten.r
+	flatten: function [
 		"Flatten nested block(s)"
 		data [block!]
 	] [
+		;	http://www.rebol.org/view-script.r?script=flatten.r
 		all [settings/console settings/called 'flatten]
 		result: copy []
 		foreach row copy/deep data [
 			append result row
 		]
-		all [settings/console settings/exited]
-		result
+		also result all [settings/console settings/exited]
 	]
 
 	intersect-only: function [
@@ -869,13 +791,28 @@ ctx-munge: context [
 		table1 [block!]
 		table2 [block!]
 	] [
+		all [
+			not empty? table1
+			not empty? table2
+			(length? table1/1) <> length? table2/1
+			settings/error "Column count mismatch"
+		]
+
 		blk: copy []
+
+		map: make map! length? table2: distinct copy table2
+
+		foreach row table2 [
+			put map form row 0
+		]
+
 		foreach row distinct copy table1 [
 			all [
-				find/only table2 row
+				select map form row
 				append/only blk row
 			]
 		]
+
 		blk
 	]
 
@@ -884,13 +821,7 @@ ctx-munge: context [
 		data [file! url! string!]
 	] compose/deep [
 		data: reverse deline/lines either string? data [skip data -4096 + length? data] [
-			latin1-to-utf8 (
-				switch settings/build [
-					r2	[[skip tail read/binary data -4096]]
-					r3	[[read/seek data max 0 -4096 + size? data]]
-					red	[[read/binary/seek data max 0 -4096 + size? data]]
-				]
-			)
+			latin1-to-utf8 (either settings/build = 'red [[read/binary/seek]] [[read/seek]]) data max 0 -4096 + size? data
 		]
 
 		foreach line data [
@@ -900,19 +831,25 @@ ctx-munge: context [
 		copy ""
 	]
 
-	latin1-to-utf8: function [ ; http://stackoverflow.com/questions/21716201/perform-file-encoding-conversion-with-rebol-3
+	latin1-to-utf8: function [
 		"Latin1 binary to UTF-8 string conversion"
 		data [binary!]
-	] compose/deep [
-		;	remove #"^@"
-		trim/with data null
-		;	remove #"^M" from split crlf
-		either empty? data [make string! 0] [
-			all [cr = last data take/last data]
-			;	replace char 160 with space - http://www.adamkoch.com/2009/07/25/white-space-and-character-160/
+	] [
+		;	http://stackoverflow.com/questions/21716201/perform-file-encoding-conversion-with-rebol-3
+		all [settings/console settings/called 'latin1-to-utf8]
+
+		unless settings/as-is [
+			;	remove #"^@"
+			trim/with data null
+			;	replace char 160 with space
 			mark: data
 			while [mark: find mark #{C2A0}] [
 				change/part mark #{20} 2
+			]
+			;	replace em/no-break/ideographic space with space
+			mark: data
+			while [mark: any [find mark #{E28083} find mark #{E280AF} find mark #{E38080}]] [
+				change/part mark #{20} 3
 			]
 			;	replace dash with hyphen
 			mark: data
@@ -920,14 +857,21 @@ ctx-munge: context [
 				change/part mark #{2D} 3
 			]
 			;	replace latin1 with UTF
-			(either settings/build = 'r2 [] [[
-				mark: data
-				while [mark: invalid-utf? mark] [
-					change/part mark to char! mark/1 1
-				]
-			]])
-			deline to string! data
+			mark: data
+			while [mark: invalid-utf? mark] [
+				change/part mark to char! mark/1 1
+			]
 		]
+
+		also deline either 262144 >= length? data [to string! data] [
+			s: make string! length? data
+			while [not tail? data] [
+				append s to string! copy/part data 262144
+				all [cr = last s take/last s]
+				data: skip data 262144
+			]
+			s
+		] all [settings/console settings/exited]
 	]
 
 	letter: charset [#"A" - #"Z" #"a" - #"z"]
@@ -939,12 +883,15 @@ ctx-munge: context [
 		not find data (complement letter)
 	]
 
-	like: function [ ; http://stackoverflow.com/questions/31612164/does-anyone-have-an-efficient-r3-function-that-mimics-the-behaviour-of-find-any
+	like: function [
 		"Finds a value in a series, expanding * (any characters) and ? (any one character), and returns TRUE if found"
 		series [any-string!] "Series to search"
 		value [any-string!] "Value to find"
 		/local part
-	] compose [
+	] either settings/build = 'r3 [[
+		all [find/any/match series value true]
+	]] [compose [
+		;	http://stackoverflow.com/questions/31612164/does-anyone-have-an-efficient-r3-function-that-mimics-the-behaviour-of-find-any
 		all [empty? series return none]
 		literal: (complement charset "*?")
 		value: collect [
@@ -958,8 +905,8 @@ ctx-munge: context [
 				]
 			]
 		]
-		parse series [some [result: value (return true)]]
-	]
+		any [parse series [some [result: value (return true)]] none]
+	]]
 
 	list: function [
 		"Uses settings to optionally trim strings and set the new-line marker"
@@ -972,19 +919,41 @@ ctx-munge: context [
 		] [data]
 	]
 
-	load-dsv: function [ ; http://www.rebol.org/view-script.r?script=csv-tools.r
+	load-basic: function [
+		"Parses basic delimiter-separated values into row blocks"
+		file [file! binary! url!]
+		/flat "Flatten rows"
+		/local s
+	] [
+		all [settings/console settings/called 'load-basic]
+		dlm: delimiter? line: first-line file
+		blk: copy []
+		either flat [action: [(append blk trim s)]] [
+			row: make block! cols: 1 + subtract length? line length? trim/with line dlm
+			action: [(
+				append row trim s
+				all [cols = length? row append/only blk copy row clear row]
+			)]
+		]
+		parse read-string file [any [copy s to [dlm | lf | end] action skip]]
+		also blk all [settings/console settings/exited]
+	]
+
+	load-dsv: function [
 		"Parses delimiter-separated values into row blocks"
 		source [file! url! binary! string!]
 		/part "Offset position(s) to retrieve"
 			columns [block! integer! word!]
-		/where "Expression that can reference columns as row/1, row/2, etc"
+		/where "Expression that can reference columns as row/1, row/2, etc or &field"
 			condition [block!]
 		/with "Alternate delimiter (default is tab, bar then comma)"
 			delimiter [char!]
 		/ignore "Ignore truncated row errors"
 		/csv "Parse as CSV even though not comma-delimited"
 		/flat "Flatten rows"
+		/local v
 	] compose [
+		;	http://www.rebol.org/view-script.r?script=csv-tools.r
 		all [settings/console settings/called 'load-dsv]
 
 		source: either string? source [
@@ -996,7 +965,7 @@ ctx-munge: context [
 					settings/error reform [last split-path source "is an Excel file"]
 				]
 				all [
-					#{22} = read-binary/part source 1
+					#{22} = to binary! read/part source 1
 					csv: true
 				]
 			]
@@ -1005,44 +974,24 @@ ctx-munge: context [
 
 		any [with delimiter: delimiter? source]
 
-		(either settings/build = 'r2 [[
-			valchars: compose [any (remove/part make bitset! [#"^(00)" - #"^(FF)"] ajoin [delimiter lf])]
-			value: either any [delimiter = #"," csv] [
-				[
-					any [#" "] {"} copy v [to {"} | to end]
-					any [{"} x: {"} [to {"} | to end] y: (insert/part tail v x y)]
-					[{"} valchars | end] (insert tail row v)
-					| any [#" "] v: valchars x: (insert tail row trim/tail copy/part v x)
-				]
-			] [
-				[any [#" "] v: valchars x: (insert tail row trim/tail copy/part v x)]
+		value: either any [delimiter = #"," csv] [
+			[
+				any [#" "] {"} copy v to [{"} | end]
+				any [{"} x: {"} to [{"} | end] y: (append/part v x y)]
+				[{"} to [delimiter | lf | end]] (append row v)
+				| any [#" "] copy v to [delimiter | lf | end] (append row trim/tail v)
 			]
-			rule: copy/deep [
-				any [
-					end break | (row: make block! cols)
-					value
-					any [delimiter value] [lf | end] ()
-				]
+		] [
+			[any [#" "] copy v to [delimiter | lf | end] (append row trim/tail v)]
+		]
+
+		rule: copy/deep [
+			any [
+				not end (row: make block! cols)
+				value
+				any [delimiter value] [lf | end] ()
 			]
-		]] [[
-			value: either any [delimiter = #"," csv] [
-				[
-					any [#" "] {"} copy v to [{"} | end]
-					any [{"} x: {"} to [{"} | end] y: (append/part v x y)]
-					[{"} to [delimiter | lf | end]] (append row v)
-					| any [#" "] copy v to [delimiter | lf | end] (append row trim/tail v)
-				]
-			] [
-				[any [#" "] copy v to [delimiter | lf | end] (append row trim/tail v)]
-			]
-			rule: copy/deep [
-				any [
-					not end (row: make block! cols)
-					value
-					any [delimiter value] [lf | end] ()
-				]
-			]
-		]])
+		]
 
 		cols: either all [ignore not find source newline] [32] [length? fields: fields?/with source delimiter]
 
@@ -1060,6 +1009,7 @@ ctx-munge: context [
 		append last last rule compose/deep [
 			line: line + 1
 			(either settings/as-is [] [[foreach val row [trim/lines val]]])
+			(either settings/denull [[foreach val row [all [find/case ["NULL" "null"] val clear val]]]] [])
 			all [
 				row <> [""]
 				(either where [condition] [])
@@ -1068,25 +1018,21 @@ ctx-munge: context [
 					part: copy/deep [reduce []]
 					foreach col columns: to block! columns [
 						append part/2 either integer? col [
-							all [not ignore any [col < 1 col > cols] settings/error reform ["invalid /part position:" col]]
+							all [not ignore any [col < 1 col > cols] settings/error reform ["Invalid /part position:" col]]
 							compose [(append to path! 'row col)]
 						] [col]
 					]
 					compose [row: (part)]
 				] [])
-				(either settings/build = 'r2 [
-					compose [row <> pick tail blk -1 (either flat [[append]] [[append/only]])]
-				] [
-					compose [row <> last blk (either flat [[append]] [[append/only]])]
-				]) blk row
+				row <> last blk
+				(either flat [[append]] [[append/only]]) blk row
 			]
 		]
 
-		parse-series source bind rule 'row
+		parse source bind rule 'row
 
 		either flat [
-			all [settings/console settings/exited]
-			either ignore [blk] [new-line/all/skip blk true cols]
+			also either ignore [blk] [new-line/all/skip blk true cols] all [settings/console settings/exited]
 		] [list blk]
 	]
 
@@ -1154,7 +1100,7 @@ ctx-munge: context [
 		file [file!]
 		/part "Offset position(s) to retrieve"
 			columns [block! integer! word!]
-		/where "Expression that can reference columns as row/1, row/2, etc"
+		/where "Expression that can reference columns as row/1, row/2, etc or &field"
 			condition [block!]
 		/sheet number [integer!]
 		/fields
@@ -1174,7 +1120,7 @@ ctx-munge: context [
 
 		strings: make block! 65536
 
-		parse-series read-string unarchive/only file %xl/sharedStrings.xml [
+		parse latin1-to-utf8 unarchive/only file %xl/sharedStrings.xml [
 			any [
 				thru "<si>"
 				thru ">" any [#" "] copy s to "<" (
@@ -1195,43 +1141,32 @@ ctx-munge: context [
 			]
 		]
 
+		if settings/denull [
+			foreach val strings [
+				all [find/case ["NULL" "null"] val clear val]
+			]
+		]
+
 		cols: cols? sheet
 
-		(either settings/build = 'r2 [[
-			rule: copy/deep [
-				to "<row"
-				any [
-					opt [newline]
-					opt ["<row" (insert/dup tail row: make block! cols "" cols)]
-					thru {<c r="} v: any letter x: (col: copy/part v x)
-					copy type thru ">"
-					opt ["<v>" copy val to "</v></c>" (
-						poke row to-column-number col either find type {t="s"} [copy pick strings 1 + to integer! val] [trim val]
-					) "</v></c>"]
-					opt [newline]
-					opt ["</row>" ()]
-				]
+		rule: copy/deep [
+			to "<row"
+			any [
+				opt [newline]
+				opt ["<row" (append/dup row: make block! cols "" cols)]
+				thru {<c r="} copy col to digit
+				copy type thru ">"
+				opt ["<v>" copy val to "</v></c>" (
+					poke row to-column-number col either find type {t="s"} [copy pick strings 1 + to integer! val] [trim val]
+				) "</v></c>"]
+				opt [newline]
+				opt ["</row>" ()]
 			]
-		]] [[
-			rule: copy/deep [
-				to "<row"
-				any [
-					opt [newline]
-					opt ["<row" (append/dup row: make block! cols "" cols)]
-					thru {<c r="} copy col to digit
-					copy type thru ">"
-					opt ["<v>" copy val to "</v></c>" (
-						poke row to-column-number col either find type {t="s"} [copy pick strings 1 + to integer! val] [trim val]
-					) "</v></c>"]
-					opt [newline]
-					opt ["</row>" ()]
-				]
-			]
-		]])
+		]
 
 		if any [fields find reform [columns condition] "&"] [
-			parse-series read-string copy/part sheet find/tail sheet #{3C2F726F773E} rule
-			all [fields return list row]
+			parse latin1-to-utf8 copy/part sheet find/tail sheet #{3C2F726F773E} rule
+			all [fields return row]
 			set [columns condition] munge/spec/part/where reduce [row] columns condition
 		]
 
@@ -1243,19 +1178,20 @@ ctx-munge: context [
 					part: copy/deep [reduce []]
 					foreach col columns: to block! columns [
 						append part/2 either integer? col [
-							all [any [col < 1 col > (cols)] settings/error reform ["invalid /part position:" col]]
+							all [any [col < 1 col > (cols)] settings/error reform ["Invalid /part position:" col]]
 							compose [(append to path! 'row col)]
 						] [col]
 					]
 					compose [row: (part)]
 				] [])
-				(either settings/build = 'r2 [[row <> pick tail blk -1 insert/only tail]] [[row <> last blk append/only]]) blk row
+				row <> last blk
+				append/only blk row
 			]
 		]
 
 		blk: copy []
 
-		parse-series read-string sheet bind rule 'row
+		parse latin1-to-utf8 sheet bind rule 'row
 
 		list blk
 	]
@@ -1296,7 +1232,7 @@ ctx-munge: context [
 			either default [
 				foreach row outer [
 					all [
-						i: (either settings/build = 'r2 [[select-map]] [[select]]) map row/:key1
+						i: select map row/:key1
 						append row inner/:i
 					]
 					append/only blk reduce [(code)]
@@ -1304,7 +1240,7 @@ ctx-munge: context [
 			] [
 				foreach row outer [
 					all [
-						i: (either settings/build = 'r2 [[select-map]] [[select]]) map row/:key1
+						i: select map row/:key1
 						append row inner/:i
 						append/only blk reduce [(code)]
 					]
@@ -1353,7 +1289,8 @@ ctx-munge: context [
 
 		all [delete where: true condition: clause]
 
-		if all [where condition not block? condition] [ ; http://www.rebol.org/view-script.r?script=binary-search.r
+		if all [where condition not block? condition] [
+			;	http://www.rebol.org/view-script.r?script=binary-search.r
 			lo: 1
 			hi: rows: length? data
 			mid: to integer! hi + lo / 2
@@ -1396,10 +1333,10 @@ ctx-munge: context [
 				]
 				repeat i length? columns: to block! columns [
 					all [
-						word? columns/:i
+						word? word: columns/:i
 						any [
-							columns/:i: select number-map columns/:i
-							settings/error "invalid /part position"
+							columns/:i: select number-map word
+							settings/error reform ["Invalid /part position:" word]
 						]
 					]
 				]
@@ -1430,8 +1367,7 @@ ctx-munge: context [
 		case [
 			delete [
 				remove-each row data bind compose/only [all (condition)] 'row
-				all [settings/console settings/exited]
-				return data
+				also return data all [settings/console settings/exited]
 			]
 			any [part where] [
 				columns: either part [
@@ -1439,7 +1375,7 @@ ctx-munge: context [
 					cols: length? data/1
 					foreach col to block! columns [
 						append part/2 either integer? col [
-							all [any [col < 1 col > cols] settings/error reform ["invalid /part position:" col]]
+							all [any [col < 1 col > cols] settings/error reform ["Invalid /part position:" col]]
 							compose [(append to path! 'row col)]
 						] [col]
 					]
@@ -1449,19 +1385,19 @@ ctx-munge: context [
 				foreach row data compose [
 					(
 						either where [
-							either settings/build <> 'red [
-								compose/deep [all [(condition) append/only blk (columns)]]
-							] [
+							either settings/build = 'red [
 								bind compose/deep [all [(condition) append/only blk (columns)]] 'row
+							] [
+								compose/deep [all [(condition) append/only blk (columns)]]
 							]
 						] [
 							compose [append/only blk (columns)]
 						]
 					)
 				]
-				if empty? blk [
-					all [settings/console settings/exited]
-					return blk
+				all [
+					empty? blk
+					also return blk all [settings/console settings/exited]
 				]
 				data: blk
 			]
@@ -1494,8 +1430,7 @@ ctx-munge: context [
 					append/only blk group
 				]
 				1 = length? data/1 [
-					all [settings/console settings/exited]
-					return do compose [(operation) flatten data]
+					also return do compose [(operation) flatten data] all [settings/console settings/exited]
 				]
 				true [
 					val: copy []
@@ -1524,13 +1459,13 @@ ctx-munge: context [
 		list data
 	]
 
-	oledb: if settings/os = 'Windows [
-		function [
-			"Execute an OLEDB statement"
-			file [file! url!]
-			statement [string!] "SQL statement in the form (Excel) 'SELECT F1 FROM SHEET1' or (Access) 'SELECT Column FROM Table'"
-			/local sheet blk
-		] compose/deep [
+	oledb: function [
+		"Execute an OLEDB statement"
+		file [file! url!]
+		statement [string!] "SQL statement in the form (Excel) 'SELECT F1 FROM SHEET1' or (Access) 'SELECT Column FROM Table'"
+		/local sheet blk
+	] [
+		if settings/windows? [
 			all [settings/console settings/called/file 'oledb file]
 			statement: replace/all copy statement {'} {''}
 			properties: either %.accdb = suffix? file [""] [
@@ -1539,7 +1474,7 @@ ctx-munge: context [
 				{;Extended Properties=''Excel 12.0 Xml;HDR=NO;IMEX=1;Mode=Read''}
 			]
 			blk: remove load-dsv/csv/with call-out ajoin [
-				(either settings/target = 64 ["powershell "] ["C:\Windows\SysNative\WindowsPowerShell\v1.0\powershell.exe "])
+				either settings/x64? ["powershell "] ["C:\Windows\SysNative\WindowsPowerShell\v1.0\powershell.exe "]
 				{-nologo -noprofile -command "}
 					{$o=New-Object System.Data.OleDb.OleDbConnection('Provider=Microsoft.ACE.OLEDB.12.0;}
 						{Data Source=\"} replace/all to-local-file clean-path file "'" "''" {\"} properties {');}
@@ -1562,78 +1497,24 @@ ctx-munge: context [
 		]
 	]
 
-	parse-series: function [
-		"Parses a series according to grammar rules"
-		series [series!]
-		rules [block!]
-	] compose [
-		all [settings/console settings/called 'parse]
-		also (either settings/build = 'r2 [[parse/all series rules]] [[parse series rules]]) all [settings/console settings/exited]
-	]
-
-	read-binary: function [
-		"Read bytes from a file"
-		source [file! url!]
-		/part "Reads a specified number of bytes."
-			length [integer!]
-	] compose/deep [
-		all [settings/console settings/called/file 'read-binary source]
-		also either part [
-			(either settings/build = 'r3 [[read/part]] [[read/binary/part]]) source length
-		] [
-			(either settings/build = 'r3 [[read]] [[read/binary]]) source
-		] all [settings/console settings/exited]
-	]
-
 	read-string: function [
 		"Read string from a text file"
 		source [file! url! binary!]
 	] compose/deep [
-		all [settings/console settings/called/file 'read-string source]
-		i: 0
-		also either binary? source [
-			s: make string! length: length? source
-			while [i < length] [
-				append s latin1-to-utf8 copy/part skip source i 262144
-				i: i + 262144
-			]
-			s
-		] [
-			(switch settings/build [
-				r2 [[
-					replace/all trim/with read source null to char! 160 #" "
-				]]
-				r3 [[
-					s: make string! size: size? source
-					while [i < size] [
-						append s latin1-to-utf8 read/seek/part source i 262144
-						i: i + 262144
-					]
-					s
-				]]
-				red [[
-					s: make string! size: size? source
-					while [i < size] [
-						append s latin1-to-utf8 read/binary/seek/part source i 262144
-						i: i + 262144
-					]
-					s
-				]]
-			])
-		] all [settings/console settings/exited]
+		also latin1-to-utf8 either binary? source [source] [(settings/read-binary) source] all [settings/console settings/exited]
 	]
 
 	replace-deep: function [
 		"Replaces all occurrences of search values with new values in a block or nested block"
 		data [block!] "Block to replace within (modified)"
 		map [map! block!] "Map of values to replace"
-	] compose/deep [
+	] [
 		repeat i length? data [
 			either block? data/:i [replace-deep data/:i map] [
 				all [
 					not path? data/:i
 					not set-path? data/:i
-					val: (either settings/build = 'r2 [[select-map]] [[select]]) map data/:i
+					val: select map data/:i
 					any [
 						equal? type? data/:i type? val
 						all [word? data/:i path? val]
@@ -1672,7 +1553,7 @@ ctx-munge: context [
 				empty? data
 			] [0] [
 				i: 1
-				parse either file? data [read-binary data] [data] [
+				parse either file? data [read data] [data] [
 					any [thru newline (i: i + 1)]
 				]
 				i
@@ -1697,23 +1578,23 @@ ctx-munge: context [
 		parse to string! unarchive/only file %xl/workbook.xml [
 			any [thru {<sheet name="} copy name to {"} (append blk trim name)]
 		]
-		all [settings/console settings/exited]
-		blk
+		also blk all [settings/console settings/exited]
 	]
 
-	sqlcmd: if settings/os = 'Windows [
-		function [
-			"Execute a SQL Server statement"
-			server [string!]
-			database [string!]
-			statement [string!]
-			/key "Columns to convert to integer"
-				columns [integer! block!]
-			/headings "Keep column headings"
-			/string "Return string instead of block"
-			/flat "Flatten rows"
-			/identity
-		] [
+	sqlcmd: function [
+		"Execute a SQL Server statement"
+		server [string!]
+		database [string!]
+		statement [string!]
+		/key "Columns to convert to integer"
+			columns [integer! block!]
+		/headings "Keep column headings"
+		/string "Return string instead of block"
+		/flat "Flatten rows"
+		/identity
+		/local id
+	] [
+		if settings/windows? [
 			all [settings/console settings/called 'sqlcmd]
 
 			all [identity statement: rejoin [statement ";SELECT SCOPE_IDENTITY()"]]
@@ -1729,15 +1610,13 @@ ctx-munge: context [
 
 			case [
 				string [
-					all [settings/console settings/exited]
-					stdout
+					also stdout all [settings/console settings/exited]
 				]
 				identity [
 					parse stdout [thru ")^/" copy id to "^/" (return to integer! id)]
 				]
 				stdout/1 = #"^/" [
-					all [settings/console settings/exited]
-					make block! 0
+					also make block! 0 all [settings/console settings/exited]
 				]
 				like stdout "Msg*,*Level*,*State*,*Server" [
 					settings/error trim/lines find stdout "Line"
@@ -1755,10 +1634,6 @@ ctx-munge: context [
 
 						all [headings remove/part skip stdout cols cols]
 
-						foreach val stdout [
-							all ["NULL" == val clear val]
-						]
-
 						if key [
 							all [headings stdout: skip stdout cols]
 							rows: divide length? stdout cols
@@ -1775,12 +1650,6 @@ ctx-munge: context [
 
 						all [headings remove next stdout]
 
-						foreach row stdout [
-							foreach val row [
-								all ["NULL" == val clear val]
-							]
-						]
-
 						all [
 							key
 							foreach row either headings [next stdout] [stdout] [
@@ -1791,9 +1660,7 @@ ctx-munge: context [
 						]
 					]
 
-					all [settings/console settings/exited]
-
-					stdout
+					also stdout all [settings/console settings/exited]
 				]
 			]
 		]
@@ -1862,7 +1729,7 @@ ctx-munge: context [
 				attempt [
 					either any [ ; Excel
 						all [digits? date 6 > length? date]
-						all [find date "." attempt [to decimal! date] date: first parse date "."]
+						all [find date "." attempt [to decimal! date] date: first (either settings/build = 'r3a [[parse date "."]] [[split date "."]])]
 					] [
 						date: 30-Dec-1899 + to integer! date
 						all [
@@ -1880,7 +1747,7 @@ ctx-munge: context [
 							;	YYYYDDMM
 							reduce [copy/part date 4 copy/part skip date 4 2 copy/part skip date 6 2]
 						] [
-							(either settings/build = 'red [[split date make bitset! "/- "]] [[parse date "/- "]])
+							(either settings/build = 'r3a [[parse date "/- "]] [[split date make bitset! "/- "]])
 						]
 						date: to date! case [
 							mdy		[reduce [to integer! date/2 to integer! date/1 to integer! date/3]]
@@ -1903,8 +1770,8 @@ ctx-munge: context [
 	to-string-time: function [
 		"Convert a string or Rebol time to a HH:MM:SS string"
 		time [string! date! time!]
-		/precise "HH:MM:SS.mmm"
 		/minutes "HH:MM"
+		/precise "HH:MM:SS.mmm"
 	] [
 		unless time? time [
 			string: time
@@ -1932,80 +1799,73 @@ ctx-munge: context [
 				settings/error reform [string "is not a valid time"]
 			]
 		]
-		either minutes [
-			ajoin [
-				next form 100 + time/hour ":"
-				next form 100 + time/minute
+		all [#":" = second time: form time insert time #"0"]
+		case [
+			minutes	[copy/part time 5]
+			precise	[
+				clear skip time 12
+				append time pick [":00.000" "" "" ".000" "" "00" "0" ""] -4 + length? time
 			]
-		] [
-			ajoin [
-				next form 100 + time/hour ":"
-				next form 100 + time/minute ":"
-				next form 100 + to integer! time/second
-				either precise [copy/part find form time/second + .0001 "." 4] [""]
-			]
+			true	[either 5 = length? time [append time ":00"] [copy/part time 8]]
 		]
 	]
 
 	deflate: function [
 		"Decompresses a gzip encoding"
 		data [binary!]
-	] either settings/build = 'r3 [[
-		decompress/gzip append copy #{789C} skip head reverse/part skip tail copy data -8 4 10
-	]] [compose/deep [
-		(either settings/build = 'r2 [[any [view? settings/error "Requires /View"]]] [])
+	] case [
+		settings/build = 'r3	[[decompress data 'gzip]]
+		settings/build = 'r3a	[[decompress/gzip append copy #{789C} skip head reverse/part skip tail copy data -8 4 10]]
+;		settings/build = 'red	[[decompress data 'gzip]]
+		true [[
+			set?: function [value bit] [not zero? value and to integer! 2 ** bit]
 
-		set?: function [value bit] [not zero? value and to integer! 2 ** bit]
+			any [#{1F8B08} = copy/part data 3 settings/error "Bad ID or Unknown Method"]
 
-		any [#{1F8B08} = copy/part data 3 settings/error "Bad ID or Unknown Method"]
+			flags: data/4
 
-		flags: data/4
+			data: skip data 10
 
-		data: skip data 10
+			all [set? flags 1 data: skip data 2]											; crc-16?
+			all [set? flags 2 data: skip data 2 data: skip data data/2 * 256 + data/1 + 2]	; extra?
+			all [set? flags 3 data: find/tail data #"^@"]									; name?
 
-		all [set? flags 1 data: skip data 2]											; crc-16?
-		all [set? flags 2 data: skip data 2 data: skip data data/2 * 256 + data/1 + 2]	; extra?
-		all [set? flags 3 data: find/tail data #"^@"]									; name?
+			size: to integer! head reverse copy skip tail data -4
 
-		size: to integer! head reverse copy skip tail data -4
+			data: copy/part data skip tail data -8
 
-		data: copy/part data skip tail data -8
+			data: load/as rejoin [
+				#{89504E470D0A1A0A}	; signature
+				#{0000000D}			; IHDR length
+				"IHDR"				; type: header
+									; width = uncompressed size
+				to binary! size
+				#{00000001}			; height = 1 line
+				#{08}				; bit depth
+				#{00}				; color type = grayscale
+				#{00}				; compression method
+				#{00}				; filter method = none
+				#{00}				; interlace method = no interlace
+				#{00000000}			; no checksum
+									; length
+				to binary! 8 + length? data
+				"IDAT"				; type: data
+				#{789C}				; zlib header
+				#{000100FEFF00}		; 0 = no filter for scanline
+				data
+				#{00000000}			; no checksum
+				#{00000000}			; length
+				"IEND"				; type: end
+				#{00000000}			; no checksum
+			] 'png
 
-		data: (either settings/build = 'red [[load/as]] [[load]]) rejoin [
-			#{89504E470D0A1A0A}	; signature
-			#{0000000D}			; IHDR length
-			"IHDR"				; type: header
-								; width = uncompressed size
-			(either settings/build = 'red [[to binary! size]] [[load make string! reduce ["#{" to-hex size "}"]]])
-			#{00000001}			; height = 1 line
-			#{08}				; bit depth
-			#{00}				; color type = grayscale
-			#{00}				; compression method
-			#{00}				; filter method = none
-			#{00}				; interlace method = no interlace
-			#{00000000}			; no checksum
-								; length
-			(either settings/build = 'red [[to binary! 8 + length? data]] [[load make string! reduce ["#{" to-hex 8 + length? data "}"]]])
-			"IDAT"				; type: data
-			#{789C}				; zlib header
-			#{000100FEFF00}		; 0 = no filter for scanline
-			data
-			#{00000000}			; no checksum
-			#{00000000}			; length
-			"IEND"				; type: end
-			#{00000000}			; no checksum
-		] (either settings/build = 'red [['png]] [])
+			bin: make binary! size
 
-		bin: make binary! size
-
-		(either settings/build = 'red [[
 			foreach tuple data [append bin tuple/1]
-		]] [[
-			repeat i size [insert tail bin to char! pick pick data i 1]
-		]])
 
-		bin
-	]]
+			bin
+		]]
+	]
 
 	unarchive: function [
 		"Decompresses archive (only works with compression methods 'store and 'deflate)"
@@ -2013,12 +1873,16 @@ ctx-munge: context [
 		/only file [file!]
 		/info "File name/sizes only (size only for gzip)"
 		/local method size crc
-	] [ ; https://en.wikipedia.org/wiki/Zip_(file_format) & http://www.rebol.org/view-script.r?script=rebzip.r
+	] compose [
+		;	https://en.wikipedia.org/wiki/Zip_(file_format) & http://www.rebol.org/view-script.r?script=rebzip.r
 		all [settings/console settings/called/file 'unarchive any [file source]]
 
-		any [binary? source source: read-binary source]
+		any (compose/deep [[binary? source source: (settings/read-binary) source]])
 
-		source: case [
+		;	R2 parse copy converts binary! to string!
+		to-int: function [b] [to integer! reverse copy b]
+
+		also case [
 			#{1F8B08} = copy/part source 3 [
 				either info [
 					to integer! reverse skip tail copy source -4
@@ -2029,11 +1893,26 @@ ctx-munge: context [
 			#{504B0304} <> copy/part source 4 [
 				settings/error reform [source "is not a ZIP file"]
 			]
+			settings/zip? [
+				all [settings/console settings/called 'zip-codec]
+				also either only [
+					either empty? blk: codecs/zip/decode/only source to block! file [none] [blk/2/2]
+				] [
+					blk: make block! 32
+					foreach [name payload] codecs/zip/decode source [
+						append blk reduce [
+							name
+							either info [
+								length? any [second payload copy #{}]
+							] [
+								any [second payload copy #{}]
+							]
+						]
+					]
+					blk
+				] all [settings/console settings/exited]
+			]
 			true [
-				;	R2 parse copy converts binary! to string!
-
-				to-int: function [b] either settings/build = 'r2 [[to integer! reverse copy as-binary b]] [[to integer! reverse copy b]]
-
 				blk: make block! 32
 
 				extract: either zero? source/8 [[
@@ -2073,24 +1952,21 @@ ctx-munge: context [
 									]
 								]
 							]
-							if all [only name = file] [
-								all [settings/console settings/exited]
-								return last blk
+							all [
+								only
+								name = file
+								also return last blk all [settings/console settings/exited]
 							]
 						)
 					]
 					to end
 				]
 
-				either settings/build = 'r2 [parse/all source rule] [parse source rule]
+				parse source rule
 
 				either only [none] [blk]
 			]
-		]
-
-		all [settings/console settings/exited]
-
-		source
+		] all [settings/console settings/exited]
 	]
 
 	union-only: function [
@@ -2098,6 +1974,12 @@ ctx-munge: context [
 		table1 [block!]
 		table2 [block!]
 	] [
+		all [
+			not empty? table1
+			not empty? table2
+			(length? table1/1) <> length? table2/1
+			settings/error "Column count mismatch"
+		]
 		distinct append copy table1 table2
 	]
 
@@ -2105,24 +1987,46 @@ ctx-munge: context [
 		"Write block(s) of values to a delimited text file"
 		file [file! url!] "csv or tab-delimited text file"
 		data [block!]
+		/utf8
 	] [
 		all [settings/console settings/called 'write-dsv]
 		b: make block! length? data
 		foreach row data compose/deep [
 			s: copy ""
 			foreach value row [
-				append s (
+				(
 					either %.csv = suffix? file [
-						[ajoin [either any [find val: trim/with form value {"} "," find val lf] [ajoin [{"} val {"}]] [val] ","]]
+						[
+							case [
+								not series? value [
+									append s value
+								]
+								any [find trim/with value {"} "," find value lf] [
+									append s #"^""
+									append s value
+									append s #"^""
+								]
+								true [
+									append s value
+								]
+							]
+							append s #","
+						]
 					] [
-						[ajoin [value "^-"]]
+						[
+							append s value
+							append s #"^-"
+						]
 					]
 				)
 			]
 			take/last s
 			any [empty? s append b s]
 		]
-		also write/lines file b all [settings/console settings/exited]
+		also either utf8 [
+			write file #{EFBBBF}
+			write/append/lines file b
+		] [write/lines file b] all [settings/console settings/exited]
 	]
 
 	write-excel: function [
@@ -2130,7 +2034,8 @@ ctx-munge: context [
 		file [file! url!]
 		data [block!] "Name [string!] Data [block!] Widths [block!] records"
 		/filter "Add auto filter"
-	] [ ; http://officeopenxml.com/anatomyofOOXML-xlsx.php
+	] [
+		;	http://officeopenxml.com/anatomyofOOXML-xlsx.php
 		any [%.xlsx = suffix? file settings/error "not a valid .xlsx file extension"]
 
 		xml-content-types:	copy ""
