@@ -653,7 +653,7 @@ ctx-munge: context [
 		remove-each row sort data [
 			any [
 				all [
-					find ["" #[none]] row/1
+					find ["" #(none)] row/1
 					1 = length? unique row
 				]
 				either row = old-row [true] [old-row: row false]
@@ -835,6 +835,7 @@ ctx-munge: context [
 		"Latin1 binary to UTF-8 string conversion"
 		data [binary!]
 	] [
+		[
 		;	http://stackoverflow.com/questions/21716201/perform-file-encoding-conversion-with-rebol-3
 		all [settings/console settings/called 'latin1-to-utf8]
 
@@ -872,6 +873,8 @@ ctx-munge: context [
 			]
 			s
 		] all [settings/console settings/exited]
+		]
+		read-cp data 'Windows-1252
 	]
 
 	letter: charset [#"A" - #"Z" #"a" - #"z"]
@@ -1121,6 +1124,7 @@ ctx-munge: context [
 		strings: make block! 65536
 
 		parse latin1-to-utf8 unarchive/only file %xl/sharedStrings.xml [
+
 			any [
 				thru "<si>"
 				thru ">" any [#" "] copy s to "<" (
@@ -1148,7 +1152,7 @@ ctx-munge: context [
 		]
 
 		cols: cols? sheet
-
+		
 		rule: copy/deep [
 			to "<row"
 			any [
@@ -2138,3 +2142,4 @@ ctx-munge: context [
 		file
 	]
 ]
+									 
